@@ -6,15 +6,17 @@ local sentence-transformer models. All processing is done locally
 with no external API calls.
 
 Model Selection:
-The default model (all-MiniLM-L6-v2) is chosen for:
-- Fast inference speed
-- Good semantic quality for general text
-- Small size (~90MB)
-- 384-dimensional embeddings
+The default model (BAAI/bge-base-en-v1.5) is chosen for:
+- State-of-the-art semantic similarity quality
+- Strong performance on MTEB benchmarks
+- 768-dimensional embeddings
+- Good balance of accuracy and speed
 
-For higher quality at the cost of speed, consider:
-- all-mpnet-base-v2 (768 dims, slower but better)
-- paraphrase-MiniLM-L6-v2 (optimized for paraphrase detection)
+For faster but lower quality, consider:
+- all-MiniLM-L6-v2 (384 dims, faster but less accurate)
+
+For even higher quality:
+- BAAI/bge-large-en-v1.5 (1024 dims, slower but more accurate)
 
 Embedding Behavior:
 - Embeddings are L2-normalized by sentence-transformers
@@ -30,8 +32,8 @@ from sentence_transformers import SentenceTransformer
 from simcheck.core.models import Vector
 
 
-# Default embedding model - good balance of speed and quality
-DEFAULT_MODEL = "all-MiniLM-L6-v2"
+# Default embedding model - production quality, good accuracy
+DEFAULT_MODEL = "BAAI/bge-base-en-v1.5"
 
 # Module-level model cache to avoid reloading
 _model_cache: dict[str, SentenceTransformer] = {}

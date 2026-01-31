@@ -62,7 +62,7 @@ for chunk in report.off_topic_chunks():
 ## How It Works
 
 1. **Chunking**: Documents are split into ~150 token chunks at sentence boundaries
-2. **Embedding**: Each chunk (and the query) is embedded using `all-MiniLM-L6-v2`
+2. **Embedding**: Each chunk (and the query) is embedded using `BAAI/bge-base-en-v1.5`
 3. **Similarity**: Cosine similarity is computed between the query and each chunk
 4. **Scoring**: Chunks are bucketed by similarity:
    - Strong (≥0.80): Full alignment
