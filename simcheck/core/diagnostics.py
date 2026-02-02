@@ -31,6 +31,7 @@ from simcheck.core.models import (
     ComparisonResult,
     ChunkSimilarity,
     Chunk,
+    ChunkLevel,
     SIMILARITY_THRESHOLDS,
 )
 
@@ -216,6 +217,11 @@ class ChunkDiagnostic:
         above_strong_threshold: Score >= strong threshold (0.80)
         above_moderate_threshold: Score >= moderate threshold (0.65)
         below_weak_threshold: Score < weak threshold (0.45)
+        level: Hierarchy level (MACRO/MICRO/ATOMIC/FLAT)
+        heading: Section heading text (if applicable)
+        parent_index: Index of parent chunk in hierarchy
+        depth: Nesting depth in hierarchy
+        word_count: Number of words in chunk
     """
     # Core identification
     chunk_index: int
@@ -239,6 +245,49 @@ class ChunkDiagnostic:
     above_strong_threshold: bool
     above_moderate_threshold: bool
     below_weak_threshold: bool
+
+    # Hierarchy fields (v2)
+    level: ChunkLevel = ChunkLevel.FLAT
+    heading: Optional[str] = None
+    parent_index: Optional[int] = None
+    depth: int = 0
+    word_count: int = 0
+
+    @property
+    def is_hierarchical(self) -> bool:
+        """Whether this chunk is part of a hierarchical structure."""
+        return self.level != ChunkLevel.FLAT
+
+
+@dataclass
+class SectionSummary:
+    """
+    Aggregated statistics for a document section (MACRO or MICRO level).
+
+    Used for section-level analysis in hierarchical chunking mode.
+
+    Attributes:
+        section_index: Index of the section chunk
+        heading: Section heading text
+        level: Hierarchy level (MACRO or MICRO)
+        chunk_indices: Indices of all chunks in this section (including self)
+        chunk_count: Number of chunks in this section
+        avg_similarity: Mean similarity across section chunks
+        max_similarity: Highest similarity in section
+        min_similarity: Lowest similarity in section
+        total_words: Total words across section chunks
+        coverage_score: Section-level concept coverage (0-100)
+    """
+    section_index: int
+    heading: Optional[str]
+    level: ChunkLevel
+    chunk_indices: List[int]
+    chunk_count: int
+    avg_similarity: float
+    max_similarity: float
+    min_similarity: float
+    total_words: int
+    coverage_score: float
 
 
 @dataclass
@@ -425,6 +474,165 @@ class DiagnosticReport:
         """Return list of normalized scores (0-1) in document order."""
         return [c.normalized_score for c in self.by_document_order()]
 
+    # -------------------------------------------------------------------------
+    # Hierarchy methods (v2)
+    # -------------------------------------------------------------------------
+
+    def is_hierarchical(self) -> bool:
+        """Check if this report contains hierarchical chunk data."""
+        return any(c.is_hierarchical for c in self.chunks)
+
+    def get_chunks_at_level(self, level: ChunkLevel) -> List[ChunkDiagnostic]:
+        """
+        Return chunks at a specific hierarchy level.
+
+        Args:
+            level: The ChunkLevel to filter by (MACRO, MICRO, ATOMIC, FLAT)
+
+        Returns:
+            List of chunks at the specified level, in document order
+        """
+        return [c for c in self.by_document_order() if c.level == level]
+
+    def get_sections(self) -> List[SectionSummary]:
+        """
+        Get section-level aggregated statistics.
+
+        Returns summaries for MACRO and MICRO level sections, with
+        aggregated metrics for all chunks belonging to each section.
+
+        Returns:
+            List of SectionSummary objects for each section
+        """
+        if not self.is_hierarchical():
+            return []
+
+        sections: List[SectionSummary] = []
+        chunks_by_index = {c.chunk_index: c for c in self.chunks}
+
+        # Find all MACRO and MICRO chunks (these are section headers)
+        section_chunks = [c for c in self.by_document_order()
+                         if c.level in (ChunkLevel.MACRO, ChunkLevel.MICRO)]
+
+        for section_chunk in section_chunks:
+            # Find all chunks that belong to this section
+            # (the section itself + children that have this as parent)
+            child_indices = [c.chunk_index for c in self.chunks
+                            if c.parent_index == section_chunk.chunk_index]
+            all_indices = [section_chunk.chunk_index] + child_indices
+
+            # Get the chunks
+            section_chunks_list = [chunks_by_index[idx] for idx in all_indices
+                                   if idx in chunks_by_index]
+
+            if not section_chunks_list:
+                continue
+
+            similarities = [c.similarity for c in section_chunks_list]
+            total_words = sum(c.word_count for c in section_chunks_list)
+
+            # Compute section coverage score
+            strong_count = sum(1 for s in similarities if s >= SIMILARITY_THRESHOLDS["strong"])
+            moderate_count = sum(1 for s in similarities
+                                if SIMILARITY_THRESHOLDS["moderate"] <= s < SIMILARITY_THRESHOLDS["strong"])
+            weak_count = sum(1 for s in similarities
+                           if SIMILARITY_THRESHOLDS["weak"] <= s < SIMILARITY_THRESHOLDS["moderate"])
+            off_topic_count = sum(1 for s in similarities if s < SIMILARITY_THRESHOLDS["weak"])
+
+            weighted_sum = (
+                strong_count * COVERAGE_WEIGHTS["strong"] +
+                moderate_count * COVERAGE_WEIGHTS["moderate"] +
+                weak_count * COVERAGE_WEIGHTS["weak"] +
+                off_topic_count * COVERAGE_WEIGHTS["off_topic"]
+            )
+            total = len(similarities)
+            coverage = (weighted_sum / total) * 100 if total > 0 else 0
+
+            sections.append(SectionSummary(
+                section_index=section_chunk.chunk_index,
+                heading=section_chunk.heading,
+                level=section_chunk.level,
+                chunk_indices=all_indices,
+                chunk_count=len(all_indices),
+                avg_similarity=sum(similarities) / len(similarities),
+                max_similarity=max(similarities),
+                min_similarity=min(similarities),
+                total_words=total_words,
+                coverage_score=coverage,
+            ))
+
+        return sections
+
+    def by_section(self) -> dict:
+        """
+        Group chunks by their parent section.
+
+        Returns:
+            Dict mapping section_index -> list of ChunkDiagnostic
+            Key None contains orphan chunks (no parent)
+        """
+        result: dict = {None: []}
+
+        for chunk in self.by_document_order():
+            if chunk.parent_index is not None:
+                if chunk.parent_index not in result:
+                    result[chunk.parent_index] = []
+                result[chunk.parent_index].append(chunk)
+            elif chunk.level in (ChunkLevel.MACRO, ChunkLevel.MICRO):
+                # Section headers go in their own section
+                if chunk.chunk_index not in result:
+                    result[chunk.chunk_index] = []
+                result[chunk.chunk_index].insert(0, chunk)
+            else:
+                result[None].append(chunk)
+
+        # Remove empty None key if no orphans
+        if not result[None]:
+            del result[None]
+
+        return result
+
+    def hierarchy_heatmap_data(self) -> List[dict]:
+        """
+        Return hierarchical chunk data formatted for nested heatmap rendering.
+
+        Returns list of dicts with hierarchy structure:
+        - index: chunk position
+        - score: normalized 0-1 score
+        - raw_score: original similarity
+        - interpretation: text label
+        - level: hierarchy level name
+        - heading: section heading (if any)
+        - depth: nesting depth
+        - parent_index: parent chunk index
+        - children: list of child chunk indices
+        """
+        chunks_by_index = {c.chunk_index: c for c in self.chunks}
+
+        # Build children lists
+        children_map: dict = {}
+        for c in self.chunks:
+            if c.parent_index is not None:
+                if c.parent_index not in children_map:
+                    children_map[c.parent_index] = []
+                children_map[c.parent_index].append(c.chunk_index)
+
+        return [
+            {
+                "index": c.chunk_index,
+                "score": c.normalized_score,
+                "raw_score": c.similarity,
+                "interpretation": c.interpretation,
+                "level": c.level.value,
+                "heading": c.heading,
+                "depth": c.depth,
+                "parent_index": c.parent_index,
+                "children": children_map.get(c.chunk_index, []),
+                "word_count": c.word_count,
+            }
+            for c in self.by_document_order()
+        ]
+
 
 # -----------------------------------------------------------------------------
 # Factory function - main entry point
@@ -518,6 +726,12 @@ def create_diagnostic_report(
             above_strong_threshold=(similarity >= SIMILARITY_THRESHOLDS["strong"]),
             above_moderate_threshold=(similarity >= SIMILARITY_THRESHOLDS["moderate"]),
             below_weak_threshold=(similarity < SIMILARITY_THRESHOLDS["weak"]),
+            # Hierarchy fields (v2)
+            level=chunk.level,
+            heading=chunk.heading,
+            parent_index=chunk.parent_index,
+            depth=chunk.depth,
+            word_count=chunk.word_count,
         )
         chunk_diagnostics.append(diagnostic)
 

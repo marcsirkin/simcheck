@@ -18,7 +18,7 @@ Design Principles:
 - No side effects: pure computation, no persistence or external calls
 """
 
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from simcheck.core.models import (
     Chunk,
@@ -27,7 +27,13 @@ from simcheck.core.models import (
     Vector,
     interpret_similarity,
 )
-from simcheck.core.chunker import chunk_document, get_total_tokens, ChunkingError
+from simcheck.core.chunker import (
+    chunk_document,
+    get_total_tokens,
+    ChunkingError,
+    ChunkingStrategy,
+    ChunkingConfig,
+)
 from simcheck.core.embeddings import (
     embed_text,
     embed_texts,
@@ -71,6 +77,8 @@ def compare_query_to_document(
     query: str,
     document: str,
     model_name: str = DEFAULT_MODEL,
+    chunking_strategy: Union[ChunkingStrategy, str] = ChunkingStrategy.FLAT,
+    chunking_config: Optional[ChunkingConfig] = None,
 ) -> ComparisonResult:
     """
     Compare a query/concept against a document and return semantic similarity analysis.
@@ -86,6 +94,9 @@ def compare_query_to_document(
         query: Short concept or phrase to search for (e.g., "Major League Baseball")
         document: Longer text to analyze (e.g., blog post, article)
         model_name: sentence-transformer model to use for embeddings
+        chunking_strategy: Strategy for chunking (FLAT, MARKDOWN, HTML, AUTO)
+                          Can be ChunkingStrategy enum or string value
+        chunking_config: Optional configuration for hierarchical chunking
 
     Returns:
         ComparisonResult with max/avg similarity, per-chunk scores, and metadata
@@ -94,19 +105,37 @@ def compare_query_to_document(
         ComparisonError: If inputs are invalid or processing fails
 
     Example:
+        >>> # Default flat chunking
         >>> result = compare_query_to_document(
         ...     query="artificial intelligence",
         ...     document="AI is transforming industries. Machine learning models..."
         ... )
         >>> print(f"Max similarity: {result.max_similarity:.2f}")
-        >>> print(f"Avg similarity: {result.avg_similarity:.2f}")
+        >>>
+        >>> # Hierarchical chunking for Markdown documents
+        >>> result = compare_query_to_document(
+        ...     query="machine learning",
+        ...     document=markdown_article,
+        ...     chunking_strategy=ChunkingStrategy.MARKDOWN,
+        ... )
     """
     # Step 0: Validate inputs
     _validate_inputs(query, document)
 
+    # Normalize strategy to enum
+    if isinstance(chunking_strategy, str):
+        try:
+            chunking_strategy = ChunkingStrategy(chunking_strategy)
+        except ValueError:
+            raise ComparisonError(f"Invalid chunking strategy: {chunking_strategy}")
+
     # Step 1: Chunk the document
     try:
-        chunks: List[Chunk] = chunk_document(document)
+        chunks: List[Chunk] = chunk_document(
+            document,
+            strategy=chunking_strategy,
+            config=chunking_config,
+        )
     except ChunkingError as e:
         raise ComparisonError(f"Failed to chunk document: {e}")
 

@@ -16,11 +16,19 @@ Design Principles:
 """
 
 import streamlit as st
+import requests
 
-# Import backend modules (Features 1 + 2)
+# Import backend modules (Features 1 + 2 + 5 + 6)
 from simcheck.core.engine import compare_query_to_document, ComparisonError
 from simcheck.core.diagnostics import create_diagnostic_report, SortOrder
 from simcheck.core.embeddings import DEFAULT_MODEL, get_model_info
+from simcheck.core.chunker import ChunkingStrategy
+from simcheck.core.models import ChunkLevel
+from simcheck.core.recommendations import (
+    generate_recommendations,
+    RecommendationPriority,
+    RecommendationType,
+)
 
 
 # =============================================================================
@@ -39,6 +47,10 @@ def init_session_state():
     - diagnostic_report: Output from Feature 2
     - status_message: Current status for user feedback
     - error_message: Current error message (if any)
+    - chunking_strategy: Selected chunking strategy
+    - fetched_url: Last fetched URL
+    - fetch_status: Status message from URL fetch
+    - recommendation_report: Output from Feature 6 (recommendations)
     """
     defaults = {
         "document_text": "",
@@ -46,8 +58,12 @@ def init_session_state():
         "is_indexed": False,
         "comparison_result": None,
         "diagnostic_report": None,
+        "recommendation_report": None,
         "status_message": "",
         "error_message": "",
+        "chunking_strategy": "flat",
+        "fetched_url": "",
+        "fetch_status": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -59,15 +75,57 @@ def clear_results():
     st.session_state.is_indexed = False
     st.session_state.comparison_result = None
     st.session_state.diagnostic_report = None
+    st.session_state.recommendation_report = None
     st.session_state.status_message = ""
     st.session_state.error_message = ""
+
+
+def fetch_url_as_markdown(url: str) -> tuple[bool, str]:
+    """
+    Fetch a URL and convert it to Markdown using urltomarkdown.com API.
+
+    Args:
+        url: The webpage URL to convert
+
+    Returns:
+        Tuple of (success: bool, content_or_error: str)
+    """
+    api_url = "https://urltomarkdown.herokuapp.com"
+
+    try:
+        response = requests.get(
+            api_url,
+            params={
+                "url": url,
+                "title": "true",
+                "links": "true",
+                "clean": "true",
+            },
+            timeout=30,
+        )
+
+        if response.status_code == 200:
+            content = response.text
+            if content and len(content.strip()) > 0:
+                return True, content
+            else:
+                return False, "API returned empty content"
+        else:
+            return False, f"API error: HTTP {response.status_code}"
+
+    except requests.exceptions.Timeout:
+        return False, "Request timed out (30s)"
+    except requests.exceptions.ConnectionError:
+        return False, "Could not connect to API"
+    except Exception as e:
+        return False, f"Error: {str(e)}"
 
 
 # =============================================================================
 # Backend Integration (calls Features 1 + 2)
 # =============================================================================
 
-def run_comparison(query: str, document: str) -> bool:
+def run_comparison(query: str, document: str, strategy: str) -> bool:
     """
     Run the full comparison pipeline.
 
@@ -79,16 +137,33 @@ def run_comparison(query: str, document: str) -> bool:
     try:
         st.session_state.error_message = ""
 
-        # Feature 1: Run comparison
-        result = compare_query_to_document(query, document)
+        # Convert strategy string to enum
+        chunking_strategy = ChunkingStrategy(strategy)
+
+        # Feature 1: Run comparison with selected strategy
+        result = compare_query_to_document(
+            query,
+            document,
+            chunking_strategy=chunking_strategy,
+        )
         st.session_state.comparison_result = result
 
         # Feature 2: Create diagnostic report
         report = create_diagnostic_report(result)
         st.session_state.diagnostic_report = report
 
+        # Feature 6: Generate recommendations
+        rec_report = generate_recommendations(report)
+        st.session_state.recommendation_report = rec_report
+
         st.session_state.is_indexed = True
-        st.session_state.status_message = f"Analysis complete. {result.chunk_count} chunks processed."
+
+        # Include strategy info in status
+        strategy_label = strategy.upper() if strategy != "flat" else "FLAT (default)"
+        st.session_state.status_message = (
+            f"Analysis complete. {result.chunk_count} chunks processed "
+            f"using {strategy_label} strategy."
+        )
         return True
 
     except ComparisonError as e:
@@ -122,7 +197,7 @@ def render_input_section():
     """
     Render the input section with query and document text areas.
 
-    Returns tuple of (query, document) strings.
+    Returns tuple of (query, document, strategy) strings.
     """
     st.subheader("Inputs")
 
@@ -134,10 +209,56 @@ def render_input_section():
         key="query_input",
     )
 
+    # URL Fetcher section
+    with st.expander("Fetch from URL", expanded=False):
+        st.caption("Convert a webpage to Markdown for analysis")
+
+        col1, col2 = st.columns([4, 1])
+
+        with col1:
+            url_input = st.text_input(
+                "URL",
+                placeholder="https://example.com/article",
+                help="Enter a URL to fetch and convert to Markdown",
+                key="url_input",
+                label_visibility="collapsed",
+            )
+
+        with col2:
+            fetch_clicked = st.button(
+                "Fetch",
+                type="secondary",
+                use_container_width=True,
+                disabled=not (url_input and url_input.strip()),
+            )
+
+        if fetch_clicked and url_input:
+            with st.spinner("Fetching and converting..."):
+                success, result = fetch_url_as_markdown(url_input.strip())
+
+                if success:
+                    # Directly set the document input widget's state
+                    st.session_state.document_input = result
+                    st.session_state.fetch_status = f"Fetched {len(result):,} characters"
+                    st.session_state.fetched_url = url_input
+                    # Set strategy to markdown
+                    st.session_state.strategy_select = "markdown"
+                    st.rerun()
+                else:
+                    st.error(f"Failed to fetch: {result}")
+
+        if st.session_state.get("fetch_status"):
+            st.success(st.session_state.fetch_status)
+
+        st.caption(
+            "Powered by [urltomarkdown.com](https://urltomarkdown.com) | "
+            "Content is fetched externally for conversion"
+        )
+
     # Document input
     document = st.text_area(
         "Document Text",
-        placeholder="Paste your document text here...",
+        placeholder="Paste your document text here, or fetch from URL above...",
         height=200,
         help="Paste the document you want to analyze",
         key="document_input",
@@ -149,10 +270,27 @@ def render_input_section():
         char_count = len(document)
         st.caption(f"{char_count:,} characters, ~{word_count:,} words")
 
-    return query, document
+    # Chunking strategy selector
+    st.subheader("Chunking Strategy")
+
+    strategy = st.selectbox(
+        "Strategy",
+        options=["flat", "auto", "markdown", "html"],
+        format_func=lambda x: {
+            "flat": "Flat (default) - Sentence-based chunking",
+            "auto": "Auto-detect - Detect document format",
+            "markdown": "Markdown - Parse ## and ### headings",
+            "html": "HTML - Parse <h2> and <h3> tags",
+        }[x],
+        help="Choose how to chunk the document. Hierarchical strategies (markdown, html) "
+             "preserve document structure from headings.",
+        key="strategy_select",
+    )
+
+    return query, document, strategy
 
 
-def render_action_buttons(query: str, document: str):
+def render_action_buttons(query: str, document: str, strategy: str):
     """
     Render action buttons and handle their logic.
 
@@ -193,7 +331,7 @@ def render_action_buttons(query: str, document: str):
                 progress.text("Generating embeddings...")
                 progress.text("Computing similarity...")
 
-                success = run_comparison(query, document)
+                success = run_comparison(query, document, strategy)
 
                 progress.empty()
 
@@ -316,6 +454,114 @@ def render_summary_results():
             st.write(f"- Score: ({coverage.weighted_sum:.2f} / {coverage.total_chunks}) × 100 = **{coverage.score:.1f}**")
 
 
+def get_priority_badge(priority: RecommendationPriority) -> str:
+    """Get a badge for recommendation priority."""
+    badges = {
+        RecommendationPriority.HIGH: "🔴 HIGH",
+        RecommendationPriority.MEDIUM: "🟡 MEDIUM",
+        RecommendationPriority.LOW: "🟢 LOW",
+    }
+    return badges.get(priority, "")
+
+
+def get_rec_type_icon(rec_type: RecommendationType) -> str:
+    """Get an icon for recommendation type."""
+    icons = {
+        RecommendationType.REWRITE_OFF_TOPIC: "✏️",
+        RecommendationType.STRENGTHEN_WEAK: "💪",
+        RecommendationType.EXPAND_STRONG: "📈",
+        RecommendationType.RESTRUCTURE_SECTION: "🏗️",
+        RecommendationType.REMOVE_DILUTION: "✂️",
+    }
+    return icons.get(rec_type, "📋")
+
+
+def render_recommendations():
+    """Render the CCS improvement recommendations section."""
+    rec_report = st.session_state.recommendation_report
+
+    if not rec_report or not rec_report.has_recommendations():
+        return
+
+    st.divider()
+    st.subheader("Improvement Recommendations")
+
+    # Summary with potential improvement
+    improvement = rec_report.potential_ccs - rec_report.current_ccs
+    col1, col2, col3 = st.columns([2, 1, 1])
+
+    with col1:
+        st.write(rec_report.summary)
+
+    with col2:
+        st.metric(
+            "Current CCS",
+            f"{rec_report.current_ccs:.0f}",
+            help="Current Concept Coverage Score",
+        )
+
+    with col3:
+        delta = f"+{improvement:.0f}" if improvement > 0 else None
+        st.metric(
+            "Potential CCS",
+            f"{rec_report.potential_ccs:.0f}",
+            delta=delta,
+            help="Estimated score after implementing recommendations",
+        )
+
+    # Quick Wins (HIGH priority)
+    high_recs = rec_report.high_priority()
+    if high_recs:
+        with st.expander("Quick Wins (High Priority)", expanded=True):
+            for rec in high_recs:
+                _render_recommendation_card(rec)
+
+    # Additional Improvements (MEDIUM/LOW priority)
+    other_recs = rec_report.medium_priority() + rec_report.low_priority()
+    if other_recs:
+        with st.expander("Additional Improvements", expanded=False):
+            for rec in other_recs:
+                _render_recommendation_card(rec)
+
+
+def _render_recommendation_card(rec):
+    """Render a single recommendation card."""
+    icon = get_rec_type_icon(rec.rec_type)
+    priority_badge = get_priority_badge(rec.priority)
+
+    with st.container():
+        # Header row
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.write(f"{icon} **{rec.what}**")
+        with col2:
+            st.write(priority_badge)
+
+        # Why it matters
+        st.caption(f"**Impact:** {rec.why}")
+
+        # How to fix
+        st.write(f"**Fix:** {rec.how}")
+
+        # Example from strong chunks (if available)
+        if rec.example_text:
+            with st.expander("Example from strong content"):
+                st.info(rec.example_text)
+
+        # Affected chunks (collapsible)
+        if rec.target_chunks:
+            with st.expander(f"Affected chunks ({len(rec.target_chunks)})"):
+                for target in rec.target_chunks:
+                    color = get_similarity_color(target.similarity)
+                    st.write(
+                        f"**#{target.chunk_index + 1}** {color} {target.similarity:.2f} "
+                        f"({target.interpretation})"
+                    )
+                    st.caption(target.text_preview)
+
+        st.divider()
+
+
 def get_similarity_color(score: float) -> str:
     """
     Get a color indicator for a similarity score.
@@ -344,7 +590,7 @@ def render_chunk_diagnostics():
     st.subheader("Chunk Analysis")
 
     # Sorting controls
-    col1, col2 = st.columns([2, 1])
+    col1, col2, col3 = st.columns([2, 1, 1])
 
     with col1:
         sort_option = st.radio(
@@ -357,6 +603,17 @@ def render_chunk_diagnostics():
     with col2:
         show_full_text = st.checkbox("Show full text", value=False, key="show_full")
 
+    with col3:
+        # Level filter for hierarchical mode
+        if report.is_hierarchical():
+            level_filter = st.selectbox(
+                "Filter level",
+                options=["All", "MACRO", "MICRO", "ATOMIC"],
+                key="level_filter",
+            )
+        else:
+            level_filter = "All"
+
     # Get sorted chunks
     if sort_option == "Document Order":
         chunks = report.by_document_order()
@@ -365,13 +622,23 @@ def render_chunk_diagnostics():
     else:
         chunks = report.by_similarity_ascending()
 
+    # Apply level filter
+    if level_filter != "All":
+        level_enum = ChunkLevel(level_filter.lower())
+        chunks = [c for c in chunks if c.level == level_enum]
+
     # Render chunk table
     st.write("")  # Spacing
 
     for chunk in chunks:
         # Create a container for each chunk
         with st.container():
-            col1, col2, col3 = st.columns([0.5, 1, 4])
+            # Adjust columns based on hierarchical mode
+            if report.is_hierarchical():
+                col1, col2, col3, col4 = st.columns([0.5, 0.8, 1, 3.7])
+            else:
+                col1, col2, col3 = st.columns([0.5, 1, 4])
+                col4 = None
 
             with col1:
                 # Chunk index
@@ -383,12 +650,27 @@ def render_chunk_diagnostics():
                 st.write(f"{color} **{chunk.similarity:.3f}**")
                 st.caption(chunk.interpretation)
 
-            with col3:
-                # Chunk text
-                if show_full_text:
-                    st.write(chunk.text)
-                else:
-                    st.write(chunk.text_preview)
+            if col4 is not None:
+                with col3:
+                    # Hierarchy info
+                    level_badge = get_level_badge(chunk.level)
+                    st.write(level_badge)
+                    if chunk.heading:
+                        st.caption(chunk.heading[:20] + "..." if len(chunk.heading) > 20 else chunk.heading)
+
+                with col4:
+                    # Chunk text
+                    if show_full_text:
+                        st.write(chunk.text)
+                    else:
+                        st.write(chunk.text_preview)
+            else:
+                with col3:
+                    # Chunk text
+                    if show_full_text:
+                        st.write(chunk.text)
+                    else:
+                        st.write(chunk.text_preview)
 
             st.divider()
 
@@ -418,6 +700,67 @@ def render_best_worst_chunks():
                 st.caption(worst.text_preview)
 
 
+def get_level_badge(level: ChunkLevel) -> str:
+    """Get a badge/indicator for chunk level."""
+    badges = {
+        ChunkLevel.MACRO: "🔷 MACRO",
+        ChunkLevel.MICRO: "🔹 MICRO",
+        ChunkLevel.ATOMIC: "⬜ ATOMIC",
+        ChunkLevel.FLAT: "📄 FLAT",
+    }
+    return badges.get(level, "📄")
+
+
+def render_section_analysis():
+    """Render section-level analysis for hierarchical chunks."""
+    report = st.session_state.diagnostic_report
+
+    if not report or not report.is_hierarchical():
+        return
+
+    st.divider()
+    st.subheader("Section Analysis")
+    st.caption("Aggregated statistics for document sections (hierarchical mode)")
+
+    sections = report.get_sections()
+
+    if not sections:
+        st.info("No section structure detected in the document.")
+        return
+
+    for section in sections:
+        level_badge = get_level_badge(section.level)
+        heading_text = section.heading or "(No heading)"
+        coverage_color = get_coverage_color(section.coverage_score)
+
+        with st.container():
+            col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+
+            with col1:
+                st.write(f"{level_badge} **{heading_text}**")
+                st.caption(f"{section.chunk_count} chunks, {section.total_words} words")
+
+            with col2:
+                st.metric(
+                    "Avg Sim",
+                    f"{section.avg_similarity:.2f}",
+                    help="Average similarity across section chunks",
+                )
+
+            with col3:
+                st.metric(
+                    "Max",
+                    f"{section.max_similarity:.2f}",
+                    help="Highest similarity in section",
+                )
+
+            with col4:
+                st.write(f"{coverage_color} **{section.coverage_score:.0f}**")
+                st.caption("Coverage")
+
+            st.divider()
+
+
 def render_debug_panel():
     """Render optional debug information."""
     result = st.session_state.comparison_result
@@ -436,8 +779,12 @@ def render_debug_panel():
 
         if report:
             st.write("")
-            st.write("**Heatmap Data (for visualization)**")
-            st.json(report.get_heatmap_data())
+            if report.is_hierarchical():
+                st.write("**Hierarchy Heatmap Data**")
+                st.json(report.hierarchy_heatmap_data())
+            else:
+                st.write("**Heatmap Data (for visualization)**")
+                st.json(report.get_heatmap_data())
 
 
 # =============================================================================
@@ -459,16 +806,19 @@ def main():
     # Render UI sections
     render_header()
 
-    # Input section
-    query, document = render_input_section()
+    # Input section (now returns strategy too)
+    query, document, strategy = render_input_section()
 
     # Action buttons
-    render_action_buttons(query, document)
+    render_action_buttons(query, document, strategy)
 
     # Results (only shown after analysis)
     if st.session_state.is_indexed:
         render_summary_results()
+        render_recommendations()
         render_best_worst_chunks()
+        # Show section analysis for hierarchical mode
+        render_section_analysis()
         render_chunk_diagnostics()
         render_debug_panel()
 

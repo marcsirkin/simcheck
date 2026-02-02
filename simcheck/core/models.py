@@ -6,13 +6,31 @@ the comparison pipeline. They are intentionally simple and transparent.
 """
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
+from enum import Enum
 import numpy as np
 from numpy.typing import NDArray
 
 
 # Type alias for embedding vectors
 Vector = NDArray[np.float32]
+
+
+class ChunkLevel(Enum):
+    """
+    Hierarchy level for document chunks.
+
+    Hierarchical chunking creates a three-tier structure based on
+    document headings and semantic boundaries:
+    - MACRO: H2-level sections (typically 300-800 words)
+    - MICRO: H3-level subsections (typically 100-200 words)
+    - ATOMIC: Paragraph-level content (typically 20-50 words)
+    - FLAT: Default flat chunking (backwards compatible)
+    """
+    MACRO = "macro"    # H2-level sections
+    MICRO = "micro"    # H3-level subsections
+    ATOMIC = "atomic"  # Paragraph-level
+    FLAT = "flat"      # Backwards compatible flat chunking
 
 
 @dataclass
@@ -26,17 +44,35 @@ class Chunk:
         char_start: Starting character position in original document
         char_end: Ending character position in original document
         token_count: Approximate number of tokens in this chunk
+        level: Hierarchy level (MACRO/MICRO/ATOMIC/FLAT)
+        heading: Section heading text (if applicable)
+        parent_index: Index of parent chunk in hierarchy (None for top-level)
+        depth: Nesting depth in hierarchy (0 = top level)
     """
     index: int
     text: str
     char_start: int
     char_end: int
     token_count: int
+    level: ChunkLevel = ChunkLevel.FLAT
+    heading: Optional[str] = None
+    parent_index: Optional[int] = None
+    depth: int = 0
 
     @property
     def char_count(self) -> int:
         """Number of characters in this chunk."""
         return len(self.text)
+
+    @property
+    def word_count(self) -> int:
+        """Approximate number of words in this chunk."""
+        return len(self.text.split())
+
+    @property
+    def is_hierarchical(self) -> bool:
+        """Whether this chunk is part of a hierarchical structure."""
+        return self.level != ChunkLevel.FLAT
 
 
 @dataclass
