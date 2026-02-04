@@ -9,6 +9,7 @@ SimCheck helps you understand how well your content semantically aligns with tar
 - **Local-only**: All processing happens on your machine using sentence-transformers
 - **Chunk-level analysis**: See exactly which parts of your document align (or don't) with your concept
 - **Concept Coverage Score (CCS)**: A weighted 0-100 score measuring how thoroughly your document expresses the target concept
+- **Action Plan (GEO)**: A prioritized, editor-friendly checklist (front-load answer, reduce drift, add structure/evidence)
 - **Hierarchical chunking**: Parse markdown/HTML structure to preserve document hierarchy (sections, subsections, paragraphs)
 - **Improvement recommendations**: Actionable suggestions to boost your CCS, prioritized by impact
 - **Interactive UI**: Streamlit playground for exploring results
@@ -128,6 +129,17 @@ Each recommendation includes:
 - **How**: Actionable steps to fix
 - **Affected chunks**: Specific content to address
 - **Potential CCS**: Estimated score after fixes
+
+### Action Plan (GEO / AI SEO)
+
+In the Streamlit UI, SimCheck also generates a GEO-oriented action plan that complements CCS:
+- Front-load definition + direct answer near the top
+- Reduce topical drift (rewrite/cut off-topic chunks)
+- Improve structure (H2/H3 sections, steps for how-to)
+- Add evidence (outbound citations + sources section)
+- Expand intent coverage (FAQ, comparisons for commercial queries)
+
+The action plan auto-detects query intent (informational / how-to / commercial) and can be overridden in the UI.
 
 ## Testing
 

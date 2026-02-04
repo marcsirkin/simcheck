@@ -29,6 +29,8 @@ from simcheck.core.recommendations import (
     RecommendationPriority,
     RecommendationType,
 )
+from simcheck.core.geo import generate_geo_next_steps, GeoPriority
+from simcheck.core.geo import GeoIntent
 
 
 # =============================================================================
@@ -64,6 +66,11 @@ def init_session_state():
         "chunking_strategy": "flat",
         "fetched_url": "",
         "fetch_status": "",
+        "last_analyzed_query": "",
+        "last_analyzed_document": "",
+        "last_analyzed_strategy": "flat",
+        "has_seen_intro": False,
+        "geo_intent": "auto",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -157,6 +164,9 @@ def run_comparison(query: str, document: str, strategy: str) -> bool:
         st.session_state.recommendation_report = rec_report
 
         st.session_state.is_indexed = True
+        st.session_state.last_analyzed_query = query
+        st.session_state.last_analyzed_document = document
+        st.session_state.last_analyzed_strategy = strategy
 
         # Include strategy info in status
         strategy_label = strategy.upper() if strategy != "flat" else "FLAT (default)"
@@ -183,7 +193,7 @@ def run_comparison(query: str, document: str, strategy: str) -> bool:
 def render_header():
     """Render the app header."""
     st.title("SimCheck")
-    st.caption("Local Query-to-Document Cosine Similarity Analyzer")
+    st.caption("AI visibility (GEO) focused semantic coverage + next steps")
 
     # Show model info
     try:
@@ -191,6 +201,30 @@ def render_header():
         st.caption(f"Model: `{model_info['model_name']}` ({model_info['embedding_dim']} dims)")
     except Exception:
         st.caption(f"Model: `{DEFAULT_MODEL}`")
+
+    expanded = not bool(st.session_state.get("has_seen_intro"))
+    with st.expander("Start here: how to use this (and what a “good” score means)", expanded=expanded):
+        st.markdown(
+            """
+**Goal:** make your page easier for AI systems to *understand, summarize, and cite* for a target topic.
+
+**How to use (fast loop):**
+1) Enter a **Target topic** (include the entity + intent; be specific).
+2) Paste your content (or **Fetch from URL**) and choose a chunking strategy.
+3) Click **Analyze Document**.
+4) Read **Action Plan (GEO next steps)** first, then drill into chunk/section details.
+5) Edit your content and re-run to compare drafts.
+
+**Score interpretation (CCS 0–100):**
+- **80+**: strong topical focus (good baseline)
+- **60–79**: decent focus; fix weak/off-topic sections
+- **40–59**: weak focus; restructure + improve intro
+- **<40**: low focus; content likely doesn’t answer the topic directly
+
+CCS is a *semantic alignment* metric (not a ranking guarantee). Use it to compare versions of your content.
+            """.strip()
+        )
+    st.session_state.has_seen_intro = True
 
 
 def render_input_section():
@@ -203,9 +237,13 @@ def render_input_section():
 
     # Query input
     query = st.text_input(
-        "Concept / Query",
-        placeholder="e.g., Major League Baseball",
-        help="Enter a short concept or phrase to analyze",
+        "Target topic (keyword/entity + intent)",
+        placeholder="e.g., “how to choose a CRM for a small business”",
+        help=(
+            "Be specific. Include the entity and the user intent. "
+            "Examples: “best email warmup tools”, “what is retrieval augmented generation”, "
+            "“GEO for local service businesses”."
+        ),
         key="query_input",
     )
 
@@ -287,6 +325,22 @@ def render_input_section():
         key="strategy_select",
     )
 
+    with st.expander("GEO settings", expanded=False):
+        st.caption("Optional: override intent to tailor next steps.")
+        intent = st.selectbox(
+            "Intent",
+            options=["auto", "informational", "how_to", "commercial"],
+            format_func=lambda x: {
+                "auto": "Auto-detect (recommended)",
+                "informational": "Informational (define/explain)",
+                "how_to": "How-to (steps/procedure)",
+                "commercial": "Commercial (compare/choose/buy)",
+            }[x],
+            help="This only changes the Action Plan suggestions; it does not change the similarity score.",
+            key="geo_intent",
+        )
+        _ = intent
+
     return query, document, strategy
 
 
@@ -358,21 +412,22 @@ def get_coverage_color(score: float) -> str:
         return "🔴"
 
 
-def render_summary_results():
-    """Render the summary results section."""
+def render_coverage_score(*, add_divider: bool = True):
+    """Render the Concept Coverage Score (CCS) summary."""
     result = st.session_state.comparison_result
     report = st.session_state.diagnostic_report
 
     if not result or not report:
         return
 
-    st.divider()
+    if add_divider:
+        st.divider()
 
     # Concept Coverage Score - prominent display
     coverage = report.coverage
     coverage_color = get_coverage_color(coverage.score)
 
-    st.subheader("Concept Coverage Score")
+    st.subheader("Concept Coverage Score (CCS)")
     col1, col2 = st.columns([1, 3])
 
     with col1:
@@ -392,8 +447,25 @@ def render_summary_results():
             f"Weak: {coverage.bucket_counts['weak']} | "
             f"Off-topic: {coverage.bucket_counts['off_topic']}"
         )
+        st.progress(min(max(coverage.score / 100, 0.0), 1.0))
+        st.caption("Rule of thumb: 80+ strong | 60–79 decent | 40–59 weak | <40 low")
 
-    st.divider()
+    return
+
+
+def render_similarity_metrics(*, add_divider: bool = True):
+    """Render similarity metrics section."""
+    result = st.session_state.comparison_result
+    report = st.session_state.diagnostic_report
+
+    if not result or not report:
+        return
+
+    coverage = report.coverage
+
+    if add_divider:
+        st.divider()
+
     st.subheader("Similarity Metrics")
 
     # Key metrics in columns
@@ -579,6 +651,77 @@ def get_similarity_color(score: float) -> str:
         return "🔴"  # Off-topic
 
 
+def _geo_priority_badge(priority: GeoPriority) -> str:
+    if priority == GeoPriority.HIGH:
+        return "🔴 HIGH"
+    if priority == GeoPriority.MEDIUM:
+        return "🟡 MEDIUM"
+    return "🟢 LOW"
+
+
+def render_geo_action_plan(*, add_divider: bool = True):
+    """Render GEO-focused next steps (actionable, editor-friendly)."""
+    report = st.session_state.diagnostic_report
+    if not report:
+        return
+
+    document = st.session_state.get("last_analyzed_document") or ""
+    if not document.strip():
+        return
+
+    intent_override = GeoIntent(st.session_state.get("geo_intent", "auto"))
+    geo = generate_geo_next_steps(report, document, intent_override=intent_override)
+
+    if add_divider:
+        st.divider()
+    st.subheader("Action Plan (GEO next steps)")
+    st.caption("Start here. These steps are designed for improving AI summarization/citation readiness.")
+    st.write(geo.summary)
+
+    # Quick signal chips
+    sig = geo.signals
+    c0, c1, c2, c3, c4, c5 = st.columns(6)
+    c0.metric("Intent", geo.intent.value.replace("_", " ").title())
+    c1.metric("Words", f"{sig.word_count:,}")
+    c2.metric("Headings", f"{sig.h2_count + sig.h3_count}")
+    c3.metric("Links", f"{sig.link_count}")
+    c4.metric("FAQ", "Yes" if sig.has_faq else "No")
+    c5.metric("Intro aligned", f"{sig.intro_query_term_coverage:.0%}")
+
+    if not geo.steps:
+        st.info("No action items detected. Try a stricter target topic, or analyze a longer document.")
+        return
+
+    for i, step in enumerate(geo.steps, start=1):
+        with st.container():
+            col1, col2, col3 = st.columns([4, 1, 1])
+            with col1:
+                st.write(f"**{i}. {step.title}**")
+            with col2:
+                st.write(_geo_priority_badge(step.priority))
+            with col3:
+                st.caption(f"~{step.minutes} min")
+
+            st.caption(f"**Why:** {step.why}")
+            st.write(f"**Do this:** {step.how}")
+
+            if step.examples:
+                with st.expander("Template / example"):
+                    st.code(step.examples, language="markdown")
+
+            if step.target_chunks:
+                with st.expander(f"Where to edit ({len(step.target_chunks)})"):
+                    for chunk in step.target_chunks:
+                        color = get_similarity_color(chunk.similarity)
+                        st.write(
+                            f"**#{chunk.chunk_index + 1}** {color} {chunk.similarity:.2f} "
+                            f"({chunk.interpretation})"
+                        )
+                        st.caption(chunk.text_preview)
+
+            st.divider()
+
+
 def render_chunk_diagnostics():
     """Render the chunk-level diagnostics section."""
     report = st.session_state.diagnostic_report
@@ -588,6 +731,7 @@ def render_chunk_diagnostics():
 
     st.divider()
     st.subheader("Chunk Analysis")
+    st.caption("Tip: start with the Action Plan tab, then use this section to find exactly where to edit.")
 
     # Sorting controls
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -814,13 +958,19 @@ def main():
 
     # Results (only shown after analysis)
     if st.session_state.is_indexed:
-        render_summary_results()
-        render_recommendations()
-        render_best_worst_chunks()
-        # Show section analysis for hierarchical mode
-        render_section_analysis()
-        render_chunk_diagnostics()
-        render_debug_panel()
+        action_tab, diagnostics_tab = st.tabs(["Action Plan", "Diagnostics"])
+
+        with action_tab:
+            render_coverage_score(add_divider=False)
+            render_geo_action_plan()
+            render_recommendations()
+
+        with diagnostics_tab:
+            render_similarity_metrics(add_divider=False)
+            render_best_worst_chunks()
+            render_section_analysis()
+            render_chunk_diagnostics()
+            render_debug_panel()
 
     # Footer
     st.divider()
