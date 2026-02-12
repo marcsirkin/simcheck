@@ -28,7 +28,7 @@ from simcheck.core.recommendations import (
     TargetChunk,
 )
 
-__version__ = "0.1.0"
+__version__ = "1.1.0"
 __all__ = [
     # Feature 1: Core comparison
     "compare_query_to_document",

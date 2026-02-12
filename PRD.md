@@ -10,6 +10,7 @@ As a consultant and practitioner, I need a local-first tool that allows me to:
 - Take a block of text (e.g., a blog post or page copy)
 - Analyze how strongly and *where* that text semantically aligns with the concept
 - Build intuition around cosine similarity, embeddings, and content drift
+- Get actionable GEO/AI-SEO recommendations for improving AI visibility
 - Use this insight to advise myself and clients
 
 This tool is for analysis and learning, not client-facing demos.
@@ -23,8 +24,11 @@ This tool is for analysis and learning, not client-facing demos.
 **Success Criteria:**
 - Chunk a document and see per-chunk similarity scores against a query term
 - Identify where content drifts off-topic within a document
+- Get a Concept Coverage Score (CCS) quantifying topical alignment
+- Receive prioritized, actionable recommendations for improving content
+- Get a GEO-oriented action plan tailored to query intent
 - Build intuition for what similarity scores mean in practice
-- Tool runs fully offline with no external dependencies
+- Tool runs fully offline with no external dependencies (except optional URL fetch)
 
 ---
 
@@ -33,9 +37,9 @@ This tool is for analysis and learning, not client-facing demos.
 To keep this tight, the application will **not**:
 - Be deployed publicly
 - Support authentication or multi-user
-- Crawl websites automatically (paste-only for v1)
+- Crawl websites automatically (paste-only or single URL fetch for v1)
 - Optimize for performance at scale
-- Generate recommendations or rewritten content
+- Generate recommendations or rewritten content automatically
 - Use a vector database (not needed for v1)
 
 ---
@@ -43,152 +47,175 @@ To keep this tight, the application will **not**:
 ## Core Workflow
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Step 1    │     │   Step 2    │     │   Step 3    │
-│   Chunk     │ ──▶ │   Embed     │ ──▶ │   Query     │
-│  Document   │     │   Chunks    │     │  Similarity │
-└─────────────┘     └─────────────┘     └─────────────┘
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Step 1    │     │   Step 2    │     │   Step 3    │     │   Step 4    │
+│   Chunk     │ ──▶ │   Embed     │ ──▶ │   Query     │ ──▶ │  Diagnose   │
+│  Document   │     │   Chunks    │     │  Similarity │     │ + Recommend │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
 **Step 1: Chunk Document**
-- Triggered by: User clicks "Chunk Document" or runs CLI command
-- Input: Pasted document text
-- Output: List of chunks with preview, chunk count
+- Input: Pasted document text (or fetched from URL)
+- Strategy: FLAT (sentence-based), MARKDOWN, HTML, or AUTO
+- Output: List of chunks with metadata (level, heading, position)
 
 **Step 2: Embed Chunks**
-- Triggered: Automatically after chunking (or explicit in CLI)
-- Input: Chunked text
-- Output: Cached chunk embeddings, confirmation message
+- Automatic after chunking
+- Model: BAAI/bge-base-en-v1.5 (768 dims, L2-normalized)
+- Output: Cached chunk embeddings as numpy arrays
 
 **Step 3: Run Query Similarity**
-- Triggered by: User clicks "Run Query" or runs CLI command
-- Input: Query term/phrase
-- Output: Per-chunk similarity scores, max, average
+- Input: Query term/phrase (entity + intent)
+- Output: Per-chunk cosine similarity scores, max, average
+
+**Step 4: Diagnose + Recommend**
+- Output: CCS score, chunk diagnostics, improvement recommendations, GEO action plan
 
 ---
 
 ## Core Features
 
-### Feature 1: Document Chunking
-**Description:** Split a pasted document into token-based chunks for analysis.
-
-**User Story:** As an analyst, I want to chunk a document so that I can analyze semantic alignment at a granular level.
-
-**Acceptance Criteria:**
-- [ ] Text input area for pasting document
-- [ ] "Chunk Document" button triggers chunking
-- [ ] Default chunk size: 300-400 tokens
-- [ ] Preserve chunk order (position matters)
-- [ ] Display chunk count after processing
-- [ ] Preview first N chunks (collapsible)
-- [ ] Store raw chunk text for later display
-
-**Technical Notes:**
-- Use tiktoken for token counting and splitting
-- Split on token boundaries, not mid-word
-- Handle edge cases: very short documents, single chunk
-
----
-
-### Feature 2: Chunk Embedding
-**Description:** Convert each chunk into a vector embedding using Ollama.
-
-**User Story:** As an analyst, I want chunks embedded so that I can compute semantic similarity against my query.
-
-**Acceptance Criteria:**
-- [ ] Automatically triggered after chunking completes
-- [ ] Use consistent embedding model across all chunks
-- [ ] Display embedding dimensionality
-- [ ] Show progress indicator during embedding
-- [ ] Confirm when document is "indexed" (ready for queries)
-- [ ] Cache embeddings in memory (no re-embed on new query)
-
-**Technical Notes:**
-- Use Ollama `embed` API
-- Default model: `nomic-embed-text`
-- Store embeddings as numpy arrays
-- No disk persistence needed for v1
-
----
-
-### Feature 3: Query Similarity Analysis
-**Description:** Embed a query term and compute cosine similarity against all document chunks.
+### Feature 1: Core Semantic Comparison Engine ✅
+**Description:** Compare a query/concept against a document and return semantic similarity analysis.
 
 **User Story:** As an analyst, I want to see how each chunk aligns with my query so that I can identify content drift.
 
 **Acceptance Criteria:**
-- [ ] Text input for query term/phrase
-- [ ] "Run Query" button triggers similarity calculation
-- [ ] Embed query using same model as chunks
-- [ ] Compute cosine similarity: query vs each chunk
-- [ ] Display results in document order (chunk position matters)
-- [ ] Show max similarity (strongest alignment)
-- [ ] Show average similarity (overall topical coverage)
-- [ ] Per-chunk similarity table with scores
-
-**Output Format:**
-```
-Max Similarity:  0.88 (Chunk #2)
-Avg Similarity:  0.61
-
-Chunk #    Similarity    Interpretation
-1          0.82          Strong
-2          0.88          Strong
-3          0.41          Off-topic
-4          0.33          Off-topic
-```
+- [x] `compare_query_to_document()` orchestrates full pipeline
+- [x] Supports flat and hierarchical chunking strategies
+- [x] Returns max/avg similarity, per-chunk scores, model metadata
+- [x] Input validation with descriptive error messages
+- [x] Batch embedding for efficiency
 
 **Technical Notes:**
-- Cosine similarity via numpy: `dot(a, b) / (norm(a) * norm(b))`
-- Format scores to 2 decimal places
-- Optional: allow sorting by score or position
+- Sentence-boundary chunking (~150 tokens for flat mode)
+- sentence-transformers with BAAI/bge-base-en-v1.5
+- Cosine similarity via numpy dot product (normalized vectors)
 
 ---
 
-### Feature 4: Interpretation Thresholds
-**Description:** Provide heuristic interpretation of similarity scores.
+### Feature 2: Chunk-Level Diagnostics ✅
+**Description:** Transform comparison results into inspectable, sortable, filterable diagnostic structures.
 
-**User Story:** As a learner, I want guidance on what scores mean so that I can build intuition.
+**User Story:** As an analyst, I want detailed per-chunk diagnostics so I can understand exactly why a document scores the way it does.
 
 **Acceptance Criteria:**
-- [ ] Display interpretation label next to each score
-- [ ] Thresholds are configurable (not hardcoded magic)
-- [ ] Clear disclaimer: "These are heuristics, not truth"
+- [x] `create_diagnostic_report()` transforms ComparisonResult
+- [x] Sorting: by document order, similarity ascending/descending
+- [x] Filtering: by threshold, by range, by custom predicate
+- [x] Convenience methods: strong_chunks(), off_topic_chunks(), top_n(), bottom_n()
+- [x] Heatmap-ready normalized scores (0-1)
+- [x] Summary statistics (mean, median, std dev, threshold counts)
+- [x] Section-level analysis for hierarchical documents
+
+**Technical Notes:**
+- Pure transformation, no recomputation of embeddings
+- Normalized scores relative to document min/max
+
+---
+
+### Feature 3: Streamlit Playground UI ✅
+**Description:** Interactive web UI for exploring semantic similarity results.
+
+**User Story:** As an analyst, I want a visual interface to explore results, compare content versions, and drill into chunk-level details.
+
+**Acceptance Criteria:**
+- [x] Single-page flow: hero input card, CCS banner, action plan, diagnostics expander
+- [x] Text input for query (target topic) and document
+- [x] URL fetcher (convert webpage to Markdown via markitdown)
+- [x] Chunking strategy selector (flat, auto, markdown, html)
+- [x] GEO intent override (auto, informational, how_to, commercial)
+- [x] "Analyze Document" full-width button triggers full pipeline
+- [x] CCS score as colored-accent banner card (green/amber/red/gray by band)
+- [x] Similarity metrics (max, avg, chunks, on-topic %)
+- [x] Per-chunk diagnostics table with sorting and level filtering
+- [x] Best/worst chunks quick access
+- [x] Section analysis for hierarchical documents
+- [x] Action plan with bordered step cards (single-column, numbered badges)
+- [x] Content signal pills in tinted strip
+- [x] Debug panel with heatmap data
+
+**Technical Notes:**
+- Thin UI layer: all logic in simcheck.core
+- Session state management, no persistence between sessions
+- Atlassian-inspired design: #F4F5F7 gray canvas, white card zones, #1868DB primary blue
+- Uses `st.container(border=True)` for card layout (not raw HTML divs)
+
+---
+
+### Feature 4: Concept Coverage Score (CCS) ✅
+**Description:** A weighted 0-100 score measuring how thoroughly a document expresses the target concept.
+
+**User Story:** As an analyst, I want a single score that tells me how well-covered my target concept is across the document.
+
+**Acceptance Criteria:**
+- [x] Weighted score formula: CCS = (sum of weighted chunks / total) × 100
+- [x] Bucket weights: Strong=1.0, Moderate=0.6, Weak=0.2, Off-topic=0.0
+- [x] Interpretation bands: 80+ Strong, 60-79 Moderate, 40-59 Weak, <40 Low
+- [x] Single-chunk warning flag
 
 **Default Thresholds:**
-| Score Range | Interpretation |
-|-------------|----------------|
-| ≥ 0.80 | Strong semantic alignment |
-| 0.65–0.80 | Moderate alignment |
-| 0.45–0.65 | Weak / partial alignment |
-| < 0.45 | Likely off-topic |
-
-**Technical Notes:**
-- Store thresholds in config dict
-- Color coding in UI: green/yellow/orange/red
+| Score Range | Interpretation | CCS Weight |
+|-------------|----------------|------------|
+| >= 0.80     | Strong         | 1.0        |
+| 0.65-0.80   | Moderate       | 0.6        |
+| 0.45-0.65   | Weak           | 0.2        |
+| < 0.45      | Off-topic      | 0.0        |
 
 ---
 
-### Feature 5: Model Selection
-**Description:** Choose from available Ollama embedding models.
+### Feature 5: Hierarchical Chunking ✅
+**Description:** Parse document structure (Markdown/HTML headings) to create a three-tier chunk hierarchy.
 
-**User Story:** As an analyst, I want to switch models so that I can compare results across different embeddings.
+**User Story:** As an analyst, I want to see per-section coverage so I can identify which sections need work.
 
 **Acceptance Criteria:**
-- [ ] Dropdown/selector for model choice
-- [ ] Default model works out of the box
-- [ ] Switching models requires re-embedding chunks
-- [ ] Clear warning when model changes
+- [x] Three-tier hierarchy: MACRO (H2), MICRO (H3), ATOMIC (paragraphs)
+- [x] Strategies: FLAT, MARKDOWN, HTML, AUTO
+- [x] AUTO detects format based on content patterns
+- [x] Configurable via ChunkingConfig (min/max words per level)
+- [x] Falls back to FLAT when no structure detected
+- [x] Section-level aggregated statistics (SectionSummary)
 
-**Available Models (v1):**
-| Model | Notes |
-|-------|-------|
-| `nomic-embed-text` (default) | Good general purpose, fast |
-| `mxbai-embed-large` | Higher quality, slower |
+**Chunking Strategies:**
+| Strategy | Use Case |
+|----------|----------|
+| `FLAT`   | Default, sentence-based chunking |
+| `MARKDOWN` | Parse `##` and `###` headings |
+| `HTML`   | Parse `<h2>` and `<h3>` tags |
+| `AUTO`   | Auto-detect format |
 
-**Technical Notes:**
-- Query available models via `ollama list`
-- Validate model exists before embedding
+---
+
+### Feature 6: CCS Improvement Recommendations ✅
+**Description:** Generate prioritized, chunk-specific recommendations for improving CCS.
+
+**User Story:** As an analyst, I want actionable recommendations for improving my document's concept coverage.
+
+**Acceptance Criteria:**
+- [x] `generate_recommendations(report)` analyzes diagnostic report
+- [x] Recommendation types: REWRITE_OFF_TOPIC, STRENGTHEN_WEAK, EXPAND_STRONG, RESTRUCTURE_SECTION, REMOVE_DILUTION
+- [x] Priority levels: HIGH, MEDIUM, LOW
+- [x] Each recommendation includes: what, why, how, target chunks, estimated impact
+- [x] Example text from strong chunks for weaker sections
+- [x] Estimated potential CCS after implementing fixes
+- [x] Max 5 recommendations, ranked by priority and impact
+
+---
+
+### Feature 7: GEO Action Plan ✅
+**Description:** Generate a GEO-oriented action plan complementing CCS with editor-friendly next steps.
+
+**User Story:** As a content editor, I want a prioritized checklist of what to change, where, and why, so I can improve my page's AI visibility.
+
+**Acceptance Criteria:**
+- [x] `generate_geo_next_steps(report, document, intent_override)` produces action plan
+- [x] Intent detection: informational, how_to, commercial (auto or override)
+- [x] Content signal extraction (headings, links, FAQ, TL;DR, steps, examples, sources, freshness)
+- [x] Actions: front-load definition, reduce drift, strengthen weak, add structure, add evidence, add examples, add FAQ, add TL;DR
+- [x] Intent-specific actions (how-to: add steps; commercial: add comparison section)
+- [x] Each step includes: title, priority, why, how, time estimate, examples, target chunks
+- [x] Sorted: HIGH → MEDIUM → LOW, then shortest time first
 
 ---
 
@@ -196,58 +223,45 @@ Chunk #    Similarity    Interpretation
 
 ### Tech Stack
 **Language:** Python 3.10+
-**Embeddings:** Ollama (local)
-**Chunking:** tiktoken
-**Math:** NumPy
-**UI (Day 2+):** Streamlit
+**Embeddings:** sentence-transformers (BAAI/bge-base-en-v1.5, 768 dims)
+**Math:** NumPy (cosine similarity via dot product on normalized vectors)
+**UI:** Streamlit
+**URL Fetch:** markitdown (local conversion, no external API)
 
 ### Dependencies
 ```
-ollama
-tiktoken
-numpy
-streamlit  # Day 2+
-```
-
-### Application Structure
-```
-simcheck/
-├── cli.py                 # CLI entry point (Day 1)
-├── app.py                 # Streamlit UI (Day 2)
-├── core/
-│   ├── __init__.py
-│   ├── chunker.py         # Token-based text chunking
-│   ├── embeddings.py      # Ollama embedding calls
-│   └── similarity.py      # Cosine similarity calculations
-├── config.py              # Thresholds, defaults
-├── tests/
-│   ├── test_chunker.py
-│   ├── test_embeddings.py
-│   └── test_similarity.py
-├── requirements.txt
-└── README.md
+sentence-transformers>=2.2.0
+numpy>=1.24.0
+torch>=2.0.0
+pytest>=7.0.0
+streamlit>=1.28.0
+requests>=2.31.0
 ```
 
 ### Architecture Flow
 ```
-Input Text
+Input Text (paste or URL fetch)
    ↓
-Chunker (tiktoken)
+Chunker (flat: sentence-boundary | hierarchical: heading-based)
    ↓
-Embedding Engine (Ollama)
+Embedding Engine (sentence-transformers, bge-base-en-v1.5)
    ↓
-Cached Chunk Vectors (numpy arrays in memory)
+Cached Chunk Vectors (numpy arrays in memory, L2-normalized)
    ↓
-Query Embedding (Ollama)
+Query Embedding (same model)
    ↓
-Cosine Similarity (numpy)
+Cosine Similarity (numpy dot product)
    ↓
-Metrics + Output
+Diagnostics (CCS, chunk analysis, section analysis)
+   ↓
+Recommendations + GEO Action Plan
+   ↓
+Streamlit UI (Action Plan tab + Diagnostics tab)
 ```
 
 ### External Dependencies
-- **Ollama:** Must be installed and running locally
-- **Models:** User must have pulled embedding models (`ollama pull nomic-embed-text`)
+- **sentence-transformers:** Downloads model on first use (~400MB for bge-base-en-v1.5)
+- **markitdown:** Local URL-to-Markdown conversion (no external API dependency)
 
 ### Storage
 **Choice:** In-memory only
@@ -257,118 +271,35 @@ Metrics + Output
 
 ## UI/UX Design
 
-### Development Phases
-
-**Day 1: CLI/Notebook**
-- Validate core logic without UI overhead
-- Print output to terminal
-- Fast iteration on chunking/embedding/similarity
-
-**Day 2: Streamlit UI**
-- Add visual interface
-- Buttons for each workflow step
-- Results table with color coding
-
-### CLI Interface (Day 1)
-```bash
-# Chunk and embed a document
-python cli.py chunk --file document.txt
-python cli.py chunk --text "paste text here"
-
-# Run query against embedded document
-python cli.py query "Major League Baseball"
-
-# Full pipeline
-python cli.py analyze --text "..." --query "Major League Baseball"
-```
-
-### Streamlit Layout (Day 2)
+### Streamlit Layout (v1.1)
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  SimCheck                                   [Model ▼]   │
+│  SimCheck — semantic coverage analyzer                   │
+│  [How to use (collapsible)]                              │
 ├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  Document                                               │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │  [Paste document text here...]                   │   │
-│  │                                                   │   │
-│  └─────────────────────────────────────────────────┘   │
-│  [ Chunk & Embed Document ]                             │
-│                                                         │
-│  Chunks: 4 chunks (1,247 tokens total)                 │
-│  Status: ✓ Document indexed                             │
-│                                                         │
+│  ANALYZE A PAGE                                          │
+│  ┌─ Hero Card ────────────────────────────────────────┐ │
+│  │  [URL input ________________________] [Fetch]      │ │
+│  │  [Target topic ____________________________]       │ │
+│  └────────────────────────────────────────────────────┘ │
+│  [Document textarea]                                     │
+│  [Settings (collapsible)]                                │
+│  [======== Analyze Document (full-width) ========]       │
 ├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  Query Term                                             │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │  Major League Baseball                           │   │
-│  └─────────────────────────────────────────────────┘   │
-│  [ Run Query ]                                          │
-│                                                         │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  Results                                                │
-│  ┌─────────────────────────────────────────────────┐   │
-│  │  Max Similarity:  0.88 (Chunk #2)               │   │
-│  │  Avg Similarity:  0.61                           │   │
-│  └─────────────────────────────────────────────────┘   │
-│                                                         │
-│  Per-Chunk Analysis                                     │
-│  ┌──────┬────────────┬────────────────┬────────────┐   │
-│  │ #    │ Similarity │ Interpretation │ Preview    │   │
-│  ├──────┼────────────┼────────────────┼────────────┤   │
-│  │ 1    │ 0.82       │ Strong         │ "The MLB..."│   │
-│  │ 2    │ 0.88       │ Strong         │ "Baseball..."│  │
-│  │ 3    │ 0.41       │ Off-topic      │ "However..."│   │
-│  │ 4    │ 0.33       │ Off-topic      │ "In other..."│  │
-│  └──────┴────────────┴────────────────┴────────────┘   │
-│                                                         │
+│  ┌─ CCS Banner (colored accent) ─────────────────────┐ │
+│  │  Score | Interpretation | Buckets | Potential      │ │
+│  └────────────────────────────────────────────────────┘ │
+│  ┌─ Action Plan Card ────────────────────────────────┐ │
+│  │  Summary + Content signal pills strip             │ │
+│  └────────────────────────────────────────────────────┘ │
+│  ┌─ Step 1 ──────────────────────────────────────────┐ │
+│  │  [num] Title [PRIORITY] [~X min]                  │ │
+│  │  Why · How · Expanders                            │ │
+│  └────────────────────────────────────────────────────┘ │
+│  ... more steps ...                                      │
+│  ▸ Detailed Diagnostics (collapsed expander)             │
 └─────────────────────────────────────────────────────────┘
 ```
-
-### Interactions
-- **Explicit steps:** User triggers each phase (chunk, query)
-- **Button-triggered:** No auto-processing on paste
-- **Progress indicators:** Show embedding progress
-- **Inline feedback:** Status messages below each section
-
-### Error Handling
-- Inline error messages: "Ollama not running", "Model not found"
-- Graceful degradation: suggest fallback model if preferred unavailable
-- Clear guidance: "Run `ollama pull nomic-embed-text` to install"
-
----
-
-## Development Checklist
-
-### Day 1: Core Logic (CLI)
-- [ ] Set up project structure
-- [ ] Implement chunker.py with tiktoken
-- [ ] Implement embeddings.py with Ollama
-- [ ] Implement similarity.py with numpy
-- [ ] Create cli.py with basic commands
-- [ ] Test: chunk a document, print chunks
-- [ ] Test: embed chunks, print dimensions
-- [ ] Test: query similarity, print max/avg
-- [ ] Write unit tests for core modules
-
-### Day 2: Streamlit UI
-- [ ] Create app.py with basic layout
-- [ ] Add document text area
-- [ ] Add "Chunk & Embed" button
-- [ ] Add query input
-- [ ] Add "Run Query" button
-- [ ] Display results table
-- [ ] Add model selector
-- [ ] Add interpretation colors
-
-### Day 3: Polish
-- [ ] Tune chunk size for best results
-- [ ] Calibrate interpretation thresholds
-- [ ] Test with multiple real documents
-- [ ] Add chunk preview expansion
-- [ ] Handle edge cases
 
 ---
 
@@ -377,24 +308,37 @@ python cli.py analyze --text "..." --query "Major League Baseball"
 ### Decision Log
 | Date | Decision | Rationale | Alternative Considered |
 |------|----------|-----------|------------------------|
-| 2026-01-30 | Ollama over sentence-transformers | Already installed locally, easy model switching, no Python dep conflicts | sentence-transformers (more models but heavier) |
-| 2026-01-30 | CLI first, Streamlit day 2 | Validate logic fast, avoid UI yak-shaving | Streamlit from start (slower iteration) |
-| 2026-01-30 | tiktoken for chunking | Precise token control, matches model tokenization | Sentence-based (variable chunk sizes) |
-| 2026-01-30 | Explicit chunking step | User sees what's happening, transparency over magic | Auto-chunk on paste (less control) |
-| 2026-01-30 | In-memory only | Simplicity, no persistence needed | SQLite/pickle (adds complexity) |
-| 2026-01-30 | Query-to-document (1:N) | Matches actual use case: analyze content coverage | Text A vs B comparison (different problem) |
+| 2026-01-30 | Ollama for embeddings | Already installed locally, easy model switching | sentence-transformers |
+| 2026-01-30 | CLI first, Streamlit day 2 | Validate logic fast | Streamlit from start |
+| 2026-01-30 | Explicit chunking step | Transparency over magic | Auto-chunk on paste |
+| 2026-01-30 | In-memory only | Simplicity | SQLite/pickle |
+| 2026-01-30 | Query-to-document (1:N) | Matches actual use case | Text A vs B comparison |
+| 2026-02-XX | Switch to sentence-transformers | No server dependency, better Python integration | Ollama (requires running server) |
+| 2026-02-XX | BAAI/bge-base-en-v1.5 | Strong MTEB benchmarks, 768-dim, good balance | nomic-embed-text, all-MiniLM-L6-v2 |
+| 2026-02-XX | ~4 chars/token heuristic | Avoids tokenizer dependency | tiktoken (heavier, precise) |
+| 2026-02-XX | Add CCS scoring | Need single number for content quality | Raw similarity only |
+| 2026-02-XX | Add hierarchical chunking | Need section-level analysis for structured docs | Flat only |
+| 2026-02-XX | Add GEO action plan | Need editor-friendly, intent-aware next steps | CCS recs only |
 
 ---
 
 ## Interpretation Guide
 
 ### Understanding Scores
-Cosine similarity ranges from -1 to 1, but for normalized embeddings typically 0 to 1:
+Cosine similarity ranges from -1 to 1, but for L2-normalized sentence-transformer embeddings typically 0 to 1:
 - **1.0:** Identical meaning (same text)
 - **0.8+:** Very strong semantic alignment
-- **0.6-0.8:** Related topics, moderate alignment
-- **0.4-0.6:** Tangentially related
-- **<0.4:** Different topics, likely off-target
+- **0.65-0.80:** Related topics, moderate alignment
+- **0.45-0.65:** Tangentially related
+- **<0.45:** Different topics, likely off-target
+
+### CCS Score
+| CCS Range | Interpretation | Meaning |
+|-----------|----------------|---------|
+| 80-100    | Strong         | Strong topical focus |
+| 60-79     | Moderate       | Decent focus; fix weak/off-topic sections |
+| 40-59     | Weak           | Weak focus; restructure + improve intro |
+| <40       | Low            | Content doesn't answer the topic directly |
 
 ### Building Intuition
 Run the same query against:
@@ -402,61 +346,44 @@ Run the same query against:
 2. A document that's tangentially related → expect 0.5-0.7
 3. A completely unrelated document → expect 0.2-0.4
 
-This calibrates your mental model for what scores mean.
-
 ---
 
 ## Future Enhancements (v2+)
 
-### v1.1 (Soon)
+### v1.1 (Current) ✅
+- [x] Modern UI overhaul (Atlassian-inspired card layout, colored CCS banners)
+- [x] Local URL-to-Markdown conversion (markitdown, no external API)
+- [x] Single-column action plan with bordered step cards
+- [x] Content signal pills in tinted strip
+- [x] Hero input card with collapsed labels
+
+### v1.2 (Soon)
 - [ ] Configurable chunk size via UI
-- [ ] Sort results by score or position
-- [ ] Flag chunks below threshold
 - [ ] Histogram of similarity distribution
+- [ ] Export results to JSON/CSV
+- [ ] Compare two drafts side-by-side
 
 ### v2 (Later)
 - [ ] Multiple queries at once
 - [ ] Compare two documents against same query
-- [ ] Export results to JSON/CSV
 - [ ] Session history (save/load analyses)
+- [ ] Batch URL processing
 
 ### v3+ (Maybe)
-- [ ] OpenRouter/cloud embeddings option
-- [ ] Batch processing from file
+- [ ] Cloud embedding option (OpenAI, Cohere)
 - [ ] API endpoint for scripting
+- [ ] Custom threshold configuration in UI
+- [ ] Automatic content rewrite suggestions
 
 ---
 
-## Reference
+## Session Management
 
-### Useful Repos/Resources
-- **Ollama:** https://github.com/ollama/ollama
-- **Embedding search:** `ollama embed cosine similarity` on GitHub
-- **Streamlit:** https://github.com/streamlit/streamlit
+**Test Count:** 271 passing
+**Features Complete:** 1, 2, 3, 4, 5, 6, 7
+**Version:** v1.1.0
+**Status:** Modern UI overhaul complete + GEO action plan + all core features
 
-### Ollama Commands
-```bash
-# Install/start Ollama
-ollama serve
-
-# Pull embedding models
-ollama pull nomic-embed-text
-ollama pull mxbai-embed-large
-
-# List available models
-ollama list
-```
-
-### Sample Code Reference
-```python
-import ollama
-import numpy as np
-
-# Embed text
-response = ollama.embed(model='nomic-embed-text', input='Hello world')
-embedding = np.array(response['embeddings'][0])
-
-# Cosine similarity
-def cosine_similarity(a, b):
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-```
+**Notes:**
+- Restart Claude Code session at 40-50% context
+- This PRD is the source of truth across sessions
