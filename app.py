@@ -16,7 +16,7 @@ Design Principles:
 """
 
 import streamlit as st
-import requests
+from markitdown import MarkItDown
 
 # Import backend modules (Features 1 + 2 + 5 + 6)
 from simcheck.core.engine import compare_query_to_document, ComparisonError
@@ -89,7 +89,7 @@ def clear_results():
 
 def fetch_url_as_markdown(url: str) -> tuple[bool, str]:
     """
-    Fetch a URL and convert it to Markdown using urltomarkdown.com API.
+    Fetch a URL and convert it to Markdown using markitdown.
 
     Args:
         url: The webpage URL to convert
@@ -97,33 +97,14 @@ def fetch_url_as_markdown(url: str) -> tuple[bool, str]:
     Returns:
         Tuple of (success: bool, content_or_error: str)
     """
-    api_url = "https://urltomarkdown.herokuapp.com"
-
     try:
-        response = requests.get(
-            api_url,
-            params={
-                "url": url,
-                "title": "true",
-                "links": "true",
-                "clean": "true",
-            },
-            timeout=30,
-        )
-
-        if response.status_code == 200:
-            content = response.text
-            if content and len(content.strip()) > 0:
-                return True, content
-            else:
-                return False, "API returned empty content"
+        md = MarkItDown()
+        result = md.convert(url)
+        content = result.text_content
+        if content and len(content.strip()) > 0:
+            return True, content
         else:
-            return False, f"API error: HTTP {response.status_code}"
-
-    except requests.exceptions.Timeout:
-        return False, "Request timed out (30s)"
-    except requests.exceptions.ConnectionError:
-        return False, "Could not connect to API"
+            return False, "Conversion returned empty content"
     except Exception as e:
         return False, f"Error: {str(e)}"
 
@@ -289,8 +270,7 @@ def render_input_section():
             st.success(st.session_state.fetch_status)
 
         st.caption(
-            "Powered by [urltomarkdown.com](https://urltomarkdown.com) | "
-            "Content is fetched externally for conversion"
+            "Powered by markitdown | Content is converted locally"
         )
 
     # Document input
