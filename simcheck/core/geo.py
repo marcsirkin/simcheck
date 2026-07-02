@@ -299,8 +299,9 @@ def generate_geo_next_steps(
     off_topic = report.off_topic_chunks()
     off_topic_percent = (len(off_topic) / total_chunks) if total_chunks else 0.0
 
-    weak_threshold = SIMILARITY_THRESHOLDS["weak"]
-    moderate_threshold = SIMILARITY_THRESHOLDS["moderate"]
+    thresholds = report.effective_thresholds
+    weak_threshold = thresholds["weak"]
+    moderate_threshold = thresholds["moderate"]
     weak_chunks = [c for c in report.chunks if weak_threshold <= c.similarity < moderate_threshold]
 
     steps: List[GeoNextStep] = []
@@ -359,7 +360,8 @@ def generate_geo_next_steps(
             ),
             how=(
                 "For each off-topic chunk: either (a) connect it back to the target topic with a clear bridge "
-                "sentence and relevant examples, or (b) remove/condense it. Aim to get these chunks above 0.45."
+                "sentence and relevant examples, or (b) remove/condense it. "
+                f"Aim to get these chunks above {weak_threshold:.2f}."
             ),
             target_chunks=off_topic[:5],
         ))
@@ -367,7 +369,7 @@ def generate_geo_next_steps(
     # 3) Strengthen weak chunks into "moderate"
     if weak_chunks:
         steps.append(GeoNextStep(
-            title="Strengthen weak sections with concrete specifics (raise to ≥0.65)",
+            title=f"Strengthen weak sections with concrete specifics (raise to ≥{moderate_threshold:.2f})",
             priority=GeoPriority.MEDIUM,
             minutes=25,
             why=(

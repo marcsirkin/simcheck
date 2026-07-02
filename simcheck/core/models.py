@@ -109,6 +109,8 @@ class ComparisonResult:
         chunk_similarities: Per-chunk similarity results, in document order
         model_name: Name of the embedding model used
         embedding_dim: Dimensionality of the embeddings
+        thresholds: Interpretation thresholds used for this comparison
+                    (None means the standard SIMILARITY_THRESHOLDS)
     """
     query: str
     document_char_count: int
@@ -120,6 +122,7 @@ class ComparisonResult:
     chunk_similarities: List[ChunkSimilarity]
     model_name: str
     embedding_dim: int
+    thresholds: Optional[dict] = None
 
     def get_chunks_above_threshold(self, threshold: float) -> List[ChunkSimilarity]:
         """Return chunks with similarity >= threshold."""
@@ -140,8 +143,39 @@ SIMILARITY_THRESHOLDS = {
     # < 0.45: Likely off-topic
 }
 
+# Calibrated thresholds for short queries (1-2 words).
+# Cosine similarity between a bare keyword/entity query and passage-length
+# chunks is systematically lower than for phrase queries: on bge-base a
+# fully on-topic document tops out around 0.78 for a single-word query,
+# structurally below the standard 0.80 "strong" band. Without this
+# adjustment, keyword queries can never reach a strong CCS.
+SHORT_QUERY_THRESHOLDS = {
+    "strong": 0.72,      # >= 0.72: Strong semantic alignment
+    "moderate": 0.60,    # 0.60-0.72: Moderate alignment
+    "weak": 0.42,        # 0.42-0.60: Weak/partial alignment
+    # < 0.42: Likely off-topic
+}
 
-def interpret_similarity(score: float) -> str:
+# Queries with at most this many words use SHORT_QUERY_THRESHOLDS
+SHORT_QUERY_MAX_WORDS = 2
+
+
+def thresholds_for_query(query: str) -> dict:
+    """
+    Select interpretation thresholds calibrated to the query's length.
+
+    Args:
+        query: The query/concept text
+
+    Returns:
+        Threshold dict with "strong", "moderate", "weak" keys
+    """
+    if len(query.split()) <= SHORT_QUERY_MAX_WORDS:
+        return SHORT_QUERY_THRESHOLDS
+    return SIMILARITY_THRESHOLDS
+
+
+def interpret_similarity(score: float, thresholds: Optional[dict] = None) -> str:
     """
     Convert a similarity score to a human-readable interpretation.
 
@@ -151,15 +185,17 @@ def interpret_similarity(score: float) -> str:
 
     Args:
         score: Cosine similarity score (typically 0.0 to 1.0)
+        thresholds: Threshold dict to use (defaults to SIMILARITY_THRESHOLDS)
 
     Returns:
         Human-readable interpretation string
     """
-    if score >= SIMILARITY_THRESHOLDS["strong"]:
+    t = thresholds or SIMILARITY_THRESHOLDS
+    if score >= t["strong"]:
         return "Strong"
-    elif score >= SIMILARITY_THRESHOLDS["moderate"]:
+    elif score >= t["moderate"]:
         return "Moderate"
-    elif score >= SIMILARITY_THRESHOLDS["weak"]:
+    elif score >= t["weak"]:
         return "Weak"
     else:
         return "Off-topic"

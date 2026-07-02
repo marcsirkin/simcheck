@@ -162,6 +162,15 @@ To keep this tight, the application will **not**:
 | 0.45-0.65   | Weak           | 0.2        |
 | < 0.45      | Off-topic      | 0.0        |
 
+**Short-Query Calibration (1-2 word queries):**
+Bare keyword/entity queries produce systematically lower cosine scores than
+phrase queries (on bge-base, a fully on-topic document tops out ~0.78 for a
+single-word query). Queries of 1-2 words automatically use lower bands:
+Strong >= 0.72, Moderate 0.60-0.72, Weak 0.42-0.60, Off-topic < 0.42.
+The UI flags when this calibration is active and coaches phrase-shaped queries.
+CCS is a relative measure (compare drafts for the same topic) — not comparable
+to LLM relevance grades.
+
 ---
 
 ### Feature 5: Hierarchical Chunking ✅
@@ -379,10 +388,10 @@ Run the same query against:
 
 ## Session Management
 
-**Test Count:** 272 passing
+**Test Count:** 283 passing
 **Features Complete:** 1, 2, 3, 4, 5, 6, 7
-**Version:** v1.1.1
-**Status:** Modern UI overhaul + GEO action plan + drift map, model warmup, example loader, GEO signal regex fixes
+**Version:** v1.2.0
+**Status:** Query-length-aware thresholds + CCS interpretation guidance + demo polish
 
 **Notes:**
 - Restart Claude Code session at 40-50% context

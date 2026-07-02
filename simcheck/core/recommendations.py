@@ -218,9 +218,10 @@ def _analyze_weak_chunks(report: DiagnosticReport) -> List[Recommendation]:
     """
     recommendations = []
 
-    # Get weak chunks (0.45 <= similarity < 0.65)
-    weak_threshold = SIMILARITY_THRESHOLDS["weak"]
-    moderate_threshold = SIMILARITY_THRESHOLDS["moderate"]
+    # Get weak chunks (between the weak and moderate thresholds)
+    thresholds = report.effective_thresholds
+    weak_threshold = thresholds["weak"]
+    moderate_threshold = thresholds["moderate"]
     weak_chunks = [c for c in report.chunks
                    if weak_threshold <= c.similarity < moderate_threshold]
 
@@ -236,10 +237,11 @@ def _analyze_weak_chunks(report: DiagnosticReport) -> List[Recommendation]:
 
     target_chunks = [_create_target_chunk(c) for c in weak_chunks]
 
+    band = f"{weak_threshold:.2f}-{moderate_threshold:.2f}"
     if len(weak_chunks) == 1:
-        what = "1 chunk has weak concept alignment (0.45-0.65)"
+        what = f"1 chunk has weak concept alignment ({band})"
     else:
-        what = f"{len(weak_chunks)} chunks have weak concept alignment (0.45-0.65)"
+        what = f"{len(weak_chunks)} chunks have weak concept alignment ({band})"
 
     why = (f"Weak chunks only contribute 20% weight to CCS (vs 60% for moderate, 100% for strong). "
            f"Strengthening these {len(weak_chunks)} chunks could significantly boost your score.")

@@ -6,7 +6,9 @@ from simcheck.core.models import (
     ChunkSimilarity,
     ComparisonResult,
     interpret_similarity,
+    thresholds_for_query,
     SIMILARITY_THRESHOLDS,
+    SHORT_QUERY_THRESHOLDS,
 )
 
 
@@ -170,3 +172,36 @@ class TestInterpretSimilarity:
         assert "moderate" in SIMILARITY_THRESHOLDS
         assert "weak" in SIMILARITY_THRESHOLDS
         assert SIMILARITY_THRESHOLDS["strong"] == 0.80
+
+    def test_custom_thresholds(self):
+        """interpret_similarity should honor a custom threshold dict."""
+        assert interpret_similarity(0.75, SHORT_QUERY_THRESHOLDS) == "Strong"
+        assert interpret_similarity(0.65, SHORT_QUERY_THRESHOLDS) == "Moderate"
+        assert interpret_similarity(0.50, SHORT_QUERY_THRESHOLDS) == "Weak"
+        assert interpret_similarity(0.40, SHORT_QUERY_THRESHOLDS) == "Off-topic"
+
+    def test_default_thresholds_when_none(self):
+        """Passing thresholds=None should fall back to the standard set."""
+        assert interpret_similarity(0.75, None) == "Moderate"
+
+
+class TestThresholdsForQuery:
+    """Tests for query-length-aware threshold selection."""
+
+    def test_single_word_query_uses_short_thresholds(self):
+        assert thresholds_for_query("dkim") is SHORT_QUERY_THRESHOLDS
+
+    def test_two_word_query_uses_short_thresholds(self):
+        assert thresholds_for_query("email authentication") is SHORT_QUERY_THRESHOLDS
+
+    def test_phrase_query_uses_standard_thresholds(self):
+        assert thresholds_for_query("what is DKIM authentication") is SIMILARITY_THRESHOLDS
+
+    def test_short_thresholds_are_lower(self):
+        """Every short-query band must sit below the standard band."""
+        for key in ("strong", "moderate", "weak"):
+            assert SHORT_QUERY_THRESHOLDS[key] < SIMILARITY_THRESHOLDS[key]
+
+    def test_whitespace_only_counts_as_short(self):
+        """Degenerate queries should not crash threshold selection."""
+        assert thresholds_for_query("  dkim  ") is SHORT_QUERY_THRESHOLDS

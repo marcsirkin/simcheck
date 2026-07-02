@@ -89,6 +89,14 @@ for rec in recs.high_priority():
    - Weak (0.45-0.65): Partial alignment
    - Off-topic (<0.45): No alignment
 
+   Short queries (1-2 words) automatically use lower calibrated bands
+   (0.72 / 0.60 / 0.42): bare keywords score systematically lower with
+   embedding models than phrase queries, and would otherwise be unable to
+   reach a strong CCS. Prefer phrase-shaped topics ("DKIM email
+   authentication") over bare keywords ("dkim") for the most reliable scores.
+   CCS is a relative measure — use it to compare drafts for the same topic,
+   not as an absolute relevance grade.
+
 ### Chunking Strategies
 
 | Strategy | Use Case |
@@ -147,7 +155,7 @@ The action plan auto-detects query intent (informational / how-to / commercial) 
 pytest simcheck/tests/ -v
 ```
 
-272 tests covering chunking, embeddings, similarity, diagnostics, CCS, hierarchical parsing, recommendations, and GEO signals.
+283 tests covering chunking, embeddings, similarity, diagnostics, CCS, hierarchical parsing, recommendations, and GEO signals.
 
 ## License
 

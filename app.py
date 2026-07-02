@@ -25,7 +25,7 @@ from simcheck.core.engine import compare_query_to_document, ComparisonError
 from simcheck.core.diagnostics import create_diagnostic_report
 from simcheck.core.embeddings import DEFAULT_MODEL, get_model_info
 from simcheck.core.chunker import ChunkingStrategy
-from simcheck.core.models import ChunkLevel
+from simcheck.core.models import ChunkLevel, SHORT_QUERY_THRESHOLDS
 from simcheck.core.recommendations import (
     generate_recommendations,
     RecommendationPriority,
@@ -460,9 +460,15 @@ def render_input_section():
         # Target topic
         query = st.text_input(
             "Target topic",
-            placeholder='Target topic — e.g. "how to choose a CRM for a small business"',
+            placeholder='Target topic — phrase beats keyword: "DKIM email authentication", not "dkim"',
             label_visibility="collapsed",
             key="query_input",
+            help=(
+                "Phrase your topic the way a user would search or ask it (entity + intent). "
+                "Bare keywords score systematically lower with embedding models; "
+                "SimCheck auto-adjusts thresholds for 1–2 word topics, but a full phrase "
+                "gives more reliable results."
+            ),
         )
 
         example_col, _ = st.columns([1, 3])
@@ -568,16 +574,15 @@ def get_coverage_color(score: float) -> str:
         return "🔴"
 
 
-def get_similarity_color(score: float) -> str:
-    """Get a color indicator for a similarity score."""
-    if score >= 0.80:
-        return "🟢"
-    elif score >= 0.65:
-        return "🟡"
-    elif score >= 0.45:
-        return "🟠"
-    else:
-        return "🔴"
+def get_interpretation_color(interpretation: str) -> str:
+    """Get a color indicator for a chunk's interpretation label."""
+    colors = {
+        "Strong": "🟢",
+        "Moderate": "🟡",
+        "Weak": "🟠",
+        "Off-topic": "🔴",
+    }
+    return colors.get(interpretation, "⚪")
 
 
 def get_level_badge(level: ChunkLevel) -> str:
@@ -711,6 +716,18 @@ def render_ccs_score():
 
             # Score interpretation bands
             st.caption("80+ strong · 60–79 decent · 40–59 weak · <40 low")
+
+            if report.thresholds == SHORT_QUERY_THRESHOLDS:
+                st.caption(
+                    "Short topic (1–2 words) — thresholds auto-calibrated. "
+                    "A full phrase gives more reliable scoring."
+                )
+
+            st.caption(
+                "CCS is a relative measure: use it to compare drafts and track "
+                "improvement for the same topic — it is not comparable to "
+                "relevance grades from an LLM."
+            )
 
 
 # Drift map bucket colors — colorblind-safe diverging ladder (cool = aligned,
@@ -854,7 +871,7 @@ def _render_geo_step_card(num: int, step):
         if step.target_chunks:
             with st.expander(f"Where to edit ({len(step.target_chunks)})"):
                 for chunk in step.target_chunks:
-                    color = get_similarity_color(chunk.similarity)
+                    color = get_interpretation_color(chunk.interpretation)
                     st.write(
                         f"**#{chunk.chunk_index + 1}** {color} {chunk.similarity:.2f} "
                         f"({chunk.interpretation})"
@@ -884,7 +901,7 @@ def _render_rec_step_card(num: int, rec):
         if rec.target_chunks:
             with st.expander(f"Affected chunks ({len(rec.target_chunks)})"):
                 for target in rec.target_chunks:
-                    color = get_similarity_color(target.similarity)
+                    color = get_interpretation_color(target.interpretation)
                     st.write(
                         f"**#{target.chunk_index + 1}** {color} {target.similarity:.2f} "
                         f"({target.interpretation})"
@@ -933,7 +950,7 @@ def render_diagnostics_expander():
             st.metric(
                 "On-Topic",
                 f"{report.summary.percent_on_topic:.0f}%",
-                help="Percentage of chunks with similarity >= 0.45",
+                help=f"Percentage of chunks with similarity >= {report.effective_thresholds['weak']:.2f}",
             )
 
         # More stats
@@ -948,11 +965,12 @@ def render_diagnostics_expander():
             st.write(f"- Min: {summary.min_similarity:.3f}")
             st.write(f"- Max: {summary.max_similarity:.3f}")
         with col2:
+            t = report.effective_thresholds
             st.write("**Chunk Breakdown**")
-            st.write(f"- Strong (>= 0.80): {summary.chunks_strong}")
-            st.write(f"- Moderate (0.65-0.80): {summary.chunks_moderate}")
-            st.write(f"- Weak (0.45-0.65): {summary.chunks_weak}")
-            st.write(f"- Off-topic (< 0.45): {summary.chunks_off_topic}")
+            st.write(f"- Strong (>= {t['strong']:.2f}): {summary.chunks_strong}")
+            st.write(f"- Moderate ({t['moderate']:.2f}-{t['strong']:.2f}): {summary.chunks_moderate}")
+            st.write(f"- Weak ({t['weak']:.2f}-{t['moderate']:.2f}): {summary.chunks_weak}")
+            st.write(f"- Off-topic (< {t['weak']:.2f}): {summary.chunks_off_topic}")
         with col3:
             st.write("**CCS Calculation**")
             st.write(f"- Weighted Sum: {coverage.weighted_sum:.2f}")
@@ -1046,7 +1064,7 @@ def render_diagnostics_expander():
                 with c1:
                     st.write(f"**#{chunk.chunk_index + 1}**")
                 with c2:
-                    color = get_similarity_color(chunk.similarity)
+                    color = get_interpretation_color(chunk.interpretation)
                     st.write(f"{color} **{chunk.similarity:.3f}**")
                     st.caption(chunk.interpretation)
 
@@ -1132,7 +1150,7 @@ def main():
 
     # Footer
     st.markdown(
-        '<div class="footer-caption">SimCheck v1.1.1 · Local-only semantic analysis · No data leaves your machine</div>',
+        '<div class="footer-caption">SimCheck v1.2.0 · Local-only semantic analysis · No data leaves your machine</div>',
         unsafe_allow_html=True,
     )
 

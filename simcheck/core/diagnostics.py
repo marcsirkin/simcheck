@@ -340,12 +340,20 @@ class DiagnosticReport:
         chunks: All chunk diagnostics in document order
         summary: Aggregate statistics
         coverage: Concept Coverage Score (Feature 4)
+        thresholds: Interpretation thresholds used for this comparison
+                    (None means the standard SIMILARITY_THRESHOLDS)
     """
     query: str
     model_name: str
     chunks: List[ChunkDiagnostic]
     summary: DiagnosticSummary
     coverage: ConceptCoverageScore
+    thresholds: Optional[dict] = None
+
+    @property
+    def effective_thresholds(self) -> dict:
+        """Thresholds in effect for this report."""
+        return self.thresholds or SIMILARITY_THRESHOLDS
 
     # -------------------------------------------------------------------------
     # Sorting methods - return new lists, don't mutate
@@ -391,16 +399,16 @@ class DiagnosticReport:
         return [c for c in self.chunks if min_sim <= c.similarity <= max_sim]
 
     def strong_chunks(self) -> List[ChunkDiagnostic]:
-        """Return chunks with Strong interpretation (>= 0.80)."""
-        return self.above_threshold(SIMILARITY_THRESHOLDS["strong"])
+        """Return chunks with Strong interpretation."""
+        return self.above_threshold(self.effective_thresholds["strong"])
 
     def weak_or_off_topic_chunks(self) -> List[ChunkDiagnostic]:
-        """Return chunks below moderate threshold (< 0.65)."""
-        return self.below_threshold(SIMILARITY_THRESHOLDS["moderate"])
+        """Return chunks below the moderate threshold."""
+        return self.below_threshold(self.effective_thresholds["moderate"])
 
     def off_topic_chunks(self) -> List[ChunkDiagnostic]:
-        """Return chunks below weak threshold (< 0.45)."""
-        return self.below_threshold(SIMILARITY_THRESHOLDS["weak"])
+        """Return chunks below the weak threshold."""
+        return self.below_threshold(self.effective_thresholds["weak"])
 
     def filter_by(
         self,
@@ -532,12 +540,13 @@ class DiagnosticReport:
             total_words = sum(c.word_count for c in section_chunks_list)
 
             # Compute section coverage score
-            strong_count = sum(1 for s in similarities if s >= SIMILARITY_THRESHOLDS["strong"])
+            t = self.effective_thresholds
+            strong_count = sum(1 for s in similarities if s >= t["strong"])
             moderate_count = sum(1 for s in similarities
-                                if SIMILARITY_THRESHOLDS["moderate"] <= s < SIMILARITY_THRESHOLDS["strong"])
+                                if t["moderate"] <= s < t["strong"])
             weak_count = sum(1 for s in similarities
-                           if SIMILARITY_THRESHOLDS["weak"] <= s < SIMILARITY_THRESHOLDS["moderate"])
-            off_topic_count = sum(1 for s in similarities if s < SIMILARITY_THRESHOLDS["weak"])
+                           if t["weak"] <= s < t["moderate"])
+            off_topic_count = sum(1 for s in similarities if s < t["weak"])
 
             weighted_sum = (
                 strong_count * COVERAGE_WEIGHTS["strong"] +
@@ -674,6 +683,9 @@ def create_diagnostic_report(
     if not result.chunk_similarities:
         raise ValueError("ComparisonResult has no chunk similarities")
 
+    # Thresholds used by the comparison (query-length calibrated in engine)
+    thresholds = result.thresholds or SIMILARITY_THRESHOLDS
+
     # Extract raw similarity scores for statistics
     scores = [cs.similarity for cs in result.chunk_similarities]
 
@@ -723,9 +735,9 @@ def create_diagnostic_report(
             position_percent=chunk.index / max(1, total_chunks - 1) if total_chunks > 1 else 0.0,
             is_max=(similarity == max_score),
             is_min=(similarity == min_score),
-            above_strong_threshold=(similarity >= SIMILARITY_THRESHOLDS["strong"]),
-            above_moderate_threshold=(similarity >= SIMILARITY_THRESHOLDS["moderate"]),
-            below_weak_threshold=(similarity < SIMILARITY_THRESHOLDS["weak"]),
+            above_strong_threshold=(similarity >= thresholds["strong"]),
+            above_moderate_threshold=(similarity >= thresholds["moderate"]),
+            below_weak_threshold=(similarity < thresholds["weak"]),
             # Hierarchy fields (v2)
             level=chunk.level,
             heading=chunk.heading,
@@ -736,7 +748,7 @@ def create_diagnostic_report(
         chunk_diagnostics.append(diagnostic)
 
     # Build summary statistics
-    summary = _compute_summary(result, scores)
+    summary = _compute_summary(result, scores, thresholds)
 
     # Compute Concept Coverage Score (Feature 4)
     coverage = compute_concept_coverage_score(
@@ -752,10 +764,15 @@ def create_diagnostic_report(
         chunks=chunk_diagnostics,
         summary=summary,
         coverage=coverage,
+        thresholds=thresholds,
     )
 
 
-def _compute_summary(result: ComparisonResult, scores: List[float]) -> DiagnosticSummary:
+def _compute_summary(
+    result: ComparisonResult,
+    scores: List[float],
+    thresholds: dict,
+) -> DiagnosticSummary:
     """Compute aggregate statistics for the diagnostic summary."""
     import statistics
 
@@ -769,9 +786,9 @@ def _compute_summary(result: ComparisonResult, scores: List[float]) -> Diagnosti
     std_sim = statistics.stdev(scores) if total > 1 else 0.0
 
     # Threshold counts
-    strong = SIMILARITY_THRESHOLDS["strong"]
-    moderate = SIMILARITY_THRESHOLDS["moderate"]
-    weak = SIMILARITY_THRESHOLDS["weak"]
+    strong = thresholds["strong"]
+    moderate = thresholds["moderate"]
+    weak = thresholds["weak"]
 
     chunks_strong = sum(1 for s in scores if s >= strong)
     chunks_moderate = sum(1 for s in scores if moderate <= s < strong)

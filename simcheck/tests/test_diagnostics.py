@@ -848,3 +848,55 @@ class TestDiagnosticReportCoverage:
         """Single chunk document should have is_single_chunk flag."""
         report = create_diagnostic_report(single_chunk_result)
         assert report.coverage.is_single_chunk is True
+
+
+# -----------------------------------------------------------------------------
+# Query-length-aware thresholds (short-query calibration)
+# -----------------------------------------------------------------------------
+
+class TestShortQueryThresholds:
+    """Diagnostics should honor thresholds carried on the ComparisonResult."""
+
+    def _make_result_with_thresholds(self):
+        from simcheck.core.models import SHORT_QUERY_THRESHOLDS
+        chunk_sims = [
+            make_chunk_similarity(0, "chunk a", 0.75, "Strong"),    # short: strong, std: moderate
+            make_chunk_similarity(1, "chunk b", 0.61, "Moderate"),  # short: moderate, std: weak
+            make_chunk_similarity(2, "chunk c", 0.43, "Weak"),      # short: weak, std: off-topic
+        ]
+        result = make_comparison_result(chunk_sims, query="dkim")
+        result.thresholds = SHORT_QUERY_THRESHOLDS
+        return result
+
+    def test_summary_buckets_use_result_thresholds(self):
+        result = self._make_result_with_thresholds()
+        report = create_diagnostic_report(result)
+        assert report.summary.chunks_strong == 1
+        assert report.summary.chunks_moderate == 1
+        assert report.summary.chunks_weak == 1
+        assert report.summary.chunks_off_topic == 0
+
+    def test_report_carries_thresholds(self):
+        from simcheck.core.models import SHORT_QUERY_THRESHOLDS
+        result = self._make_result_with_thresholds()
+        report = create_diagnostic_report(result)
+        assert report.thresholds is SHORT_QUERY_THRESHOLDS
+        assert report.effective_thresholds is SHORT_QUERY_THRESHOLDS
+
+    def test_filter_methods_use_result_thresholds(self):
+        result = self._make_result_with_thresholds()
+        report = create_diagnostic_report(result)
+        assert len(report.strong_chunks()) == 1
+        assert len(report.off_topic_chunks()) == 0
+
+    def test_default_thresholds_when_absent(self):
+        """Without result.thresholds, standard bands apply (backwards compatible)."""
+        chunk_sims = [
+            make_chunk_similarity(0, "chunk a", 0.75, "Moderate"),
+            make_chunk_similarity(1, "chunk b", 0.43, "Off-topic"),
+        ]
+        result = make_comparison_result(chunk_sims, query="dkim")
+        report = create_diagnostic_report(result)
+        assert report.effective_thresholds is SIMILARITY_THRESHOLDS
+        assert report.summary.chunks_strong == 0
+        assert report.summary.chunks_off_topic == 1

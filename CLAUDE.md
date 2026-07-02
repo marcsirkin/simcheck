@@ -60,6 +60,9 @@ requirements.txt
 - Weighted 0-100 score: Strong=1.0, Moderate=0.6, Weak=0.2, Off-topic=0.0
 - Formula: `CCS = (sum of weighted chunks / total chunks) × 100`
 - Interpretation bands: 80+ Strong, 60-79 Moderate, 40-59 Weak, <40 Low
+- Query-length-aware thresholds: 1-2 word queries use SHORT_QUERY_THRESHOLDS
+  (0.72/0.60/0.42) because bare-keyword cosine scores run systematically lower
+  than phrase queries; standard set is 0.80/0.65/0.45
 
 ### Feature 5: Hierarchical Chunking
 - Three-tier hierarchy: MACRO (H2), MICRO (H3), ATOMIC (paragraphs)
@@ -97,7 +100,7 @@ requirements.txt
 - Validate inputs at module boundaries
 
 ### Testing
-- Unit tests for all core logic (272 tests)
+- Unit tests for all core logic (283 tests)
 - Test edge cases explicitly
 - Use pytest conventions
 
@@ -127,5 +130,5 @@ streamlit run app.py
 
 ## Current Status
 **Features Complete:** 1, 2, 3, 4, 5, 6, 7
-**Test Count:** 272 passing
-**Status:** v1.1.1 — GEO signal regex fixes, drift map, model warmup, example loader
+**Test Count:** 283 passing
+**Status:** v1.2.0 — query-length-aware thresholds, CCS relative-measure caption, phrase coaching

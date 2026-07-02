@@ -26,6 +26,7 @@ from simcheck.core.models import (
     ComparisonResult,
     Vector,
     interpret_similarity,
+    thresholds_for_query,
 )
 from simcheck.core.chunker import (
     chunk_document,
@@ -160,13 +161,16 @@ def compare_query_to_document(
         assume_normalized=True,  # sentence-transformers normalizes by default
     )
 
-    # Step 5: Build per-chunk results with interpretations
+    # Step 5: Build per-chunk results with interpretations.
+    # Thresholds are calibrated to query length: short keyword queries
+    # produce systematically lower cosine scores than phrase queries.
+    thresholds = thresholds_for_query(query)
     chunk_similarities: List[ChunkSimilarity] = []
     for chunk, similarity in zip(chunks, similarities):
         chunk_similarities.append(ChunkSimilarity(
             chunk=chunk,
             similarity=similarity,
-            interpretation=interpret_similarity(similarity),
+            interpretation=interpret_similarity(similarity, thresholds),
         ))
 
     # Step 6: Compute aggregate metrics
@@ -187,6 +191,7 @@ def compare_query_to_document(
         chunk_similarities=chunk_similarities,
         model_name=model_info["model_name"],
         embedding_dim=model_info["embedding_dim"],
+        thresholds=thresholds,
     )
 
 
@@ -230,11 +235,12 @@ def compare_query_to_chunks(
 
     similarities = compute_similarities(query_embedding, chunk_embeddings)
 
+    thresholds = thresholds_for_query(query)
     return [
         ChunkSimilarity(
             chunk=chunk,
             similarity=sim,
-            interpretation=interpret_similarity(sim),
+            interpretation=interpret_similarity(sim, thresholds),
         )
         for chunk, sim in zip(chunks, similarities)
     ]
