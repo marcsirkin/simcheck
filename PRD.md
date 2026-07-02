@@ -379,10 +379,10 @@ Run the same query against:
 
 ## Session Management
 
-**Test Count:** 271 passing
+**Test Count:** 272 passing
 **Features Complete:** 1, 2, 3, 4, 5, 6, 7
-**Version:** v1.1.0
-**Status:** Modern UI overhaul complete + GEO action plan + all core features
+**Version:** v1.1.1
+**Status:** Modern UI overhaul + GEO action plan + drift map, model warmup, example loader, GEO signal regex fixes
 
 **Notes:**
 - Restart Claude Code session at 40-50% context

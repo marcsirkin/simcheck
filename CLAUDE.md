@@ -48,10 +48,13 @@ requirements.txt
 - Section-level analysis for hierarchical documents
 
 ### Feature 3: Streamlit Playground UI
-- Two-tab layout: Action Plan (GEO next steps) + Diagnostics (chunk-level detail)
-- URL fetcher (convert webpage to Markdown via urltomarkdown.com)
+- Single-page flow: hero input card, CCS banner, drift map, action plan, diagnostics expander
+- URL fetcher (convert webpage to Markdown locally via markitdown)
+- "Load example" button (pre-baked query + document for demos)
 - Chunking strategy selector, GEO intent override
+- Drift map: per-chunk alignment bars in document order (colorblind-safe palette)
 - CCS score display, similarity metrics, section analysis, debug panel
+- Embedding model warmed at startup (st.cache_resource)
 
 ### Feature 4: Concept Coverage Score (CCS)
 - Weighted 0-100 score: Strong=1.0, Moderate=0.6, Weak=0.2, Off-topic=0.0
@@ -124,5 +127,5 @@ streamlit run app.py
 
 ## Current Status
 **Features Complete:** 1, 2, 3, 4, 5, 6, 7
-**Test Count:** 271 passing
-**Status:** v1.1.0 — Modern UI overhaul (Atlassian-inspired card layout, colored CCS banners, single-column action plan)
+**Test Count:** 272 passing
+**Status:** v1.1.1 — GEO signal regex fixes, drift map, model warmup, example loader

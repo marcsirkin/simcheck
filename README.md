@@ -147,7 +147,7 @@ The action plan auto-detects query intent (informational / how-to / commercial) 
 pytest simcheck/tests/ -v
 ```
 
-269 tests covering chunking, embeddings, similarity, diagnostics, CCS, hierarchical parsing, and recommendations.
+272 tests covering chunking, embeddings, similarity, diagnostics, CCS, hierarchical parsing, recommendations, and GEO signals.
 
 ## License
 

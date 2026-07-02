@@ -15,12 +15,14 @@ Design Principles:
 - No persistence: session resets on reload
 """
 
+import html
+
 import streamlit as st
 from markitdown import MarkItDown
 
 # Import backend modules (Features 1 + 2 + 5 + 6)
 from simcheck.core.engine import compare_query_to_document, ComparisonError
-from simcheck.core.diagnostics import create_diagnostic_report, SortOrder
+from simcheck.core.diagnostics import create_diagnostic_report
 from simcheck.core.embeddings import DEFAULT_MODEL, get_model_info
 from simcheck.core.chunker import ChunkingStrategy
 from simcheck.core.models import ChunkLevel
@@ -29,8 +31,7 @@ from simcheck.core.recommendations import (
     RecommendationPriority,
     RecommendationType,
 )
-from simcheck.core.geo import generate_geo_next_steps, GeoPriority
-from simcheck.core.geo import GeoIntent
+from simcheck.core.geo import generate_geo_next_steps, GeoIntent, GeoPriority
 
 
 # =============================================================================
@@ -203,6 +204,38 @@ h3 { margin-top: 0.5rem; margin-bottom: 0.5rem; }
 
 
 # =============================================================================
+# Example content (demo / first-run experience)
+# =============================================================================
+
+EXAMPLE_QUERY = "how to improve email deliverability"
+
+EXAMPLE_DOCUMENT = """# The Complete Guide to Email Deliverability
+
+Email deliverability is the ability of your messages to reach subscriber inboxes instead of spam folders. Improving email deliverability means fixing sender reputation, authenticating your domain, and keeping your list healthy. This guide covers the three areas that matter most.
+
+## Why emails land in spam
+
+Mailbox providers score every incoming message. Poor sender reputation, missing authentication, and low engagement push your email toward the spam folder. High bounce rates and spam complaints above 0.1% are the fastest way to damage deliverability.
+
+## Authentication: SPF, DKIM, and DMARC
+
+Set up all three authentication standards to prove you own your sending domain. SPF lists which servers may send for your domain. DKIM signs each message cryptographically. DMARC tells providers what to do when a message fails both checks. Publish a DMARC policy of at least p=quarantine once SPF and DKIM pass for 100% of your mail. See [Google's sender guidelines](https://support.google.com/mail/answer/81126) for current requirements.
+
+## How our company got started
+
+Back in 2014, three friends met at a hackathon in Austin and bonded over a shared love of clever engineering puzzles. After two failed prototypes and a memorable road trip to a demo day in San Francisco, the team finally rented its first tiny office above a taco shop. The early days were chaotic but joyful.
+
+## Our office culture
+
+We take coffee very seriously — the team runs a rotating barista schedule and a tasting club every Friday. Between the foosball table, the office dog Biscuit, and quarterly hiking retreats, we have built a culture people genuinely enjoy. Remote teammates join our rituals over video.
+
+## List hygiene and monitoring
+
+Remove subscribers who have not opened in 90 days, and use double opt-in to keep invalid addresses off your list. Keep your bounce rate below 2%. Monitor inbox placement weekly with seed testing, and watch Google Postmaster Tools for reputation drops. When deliverability dips, slow your sending volume and re-warm the domain gradually.
+"""
+
+
+# =============================================================================
 # Session State Initialization
 # =============================================================================
 
@@ -281,6 +314,17 @@ def fetch_url_as_markdown(url: str) -> tuple[bool, str]:
 # =============================================================================
 # Backend Integration (calls Features 1 + 2)
 # =============================================================================
+
+@st.cache_resource(show_spinner=False)
+def warm_embedding_model() -> dict:
+    """
+    Load the embedding model once per server process.
+
+    Called at startup so the first "Analyze Document" click doesn't stall
+    on model loading (or a ~400MB download on a fresh machine).
+    """
+    return get_model_info(DEFAULT_MODEL)
+
 
 def run_comparison(query: str, document: str, strategy: str) -> bool:
     """
@@ -365,6 +409,15 @@ def render_input_section():
 
     Returns tuple of (query, document, strategy) strings.
     """
+    # Apply pending example load before any widget below is instantiated
+    # (Streamlit forbids writing to a widget key after the widget renders).
+    if st.session_state.pop("load_example_pending", False):
+        st.session_state.query_input = EXAMPLE_QUERY
+        st.session_state.document_input = EXAMPLE_DOCUMENT
+        st.session_state.strategy_select = "markdown"
+        st.session_state.fetch_status = ""
+        clear_results()
+
     # --- Hero input card ---
     st.markdown('<div class="section-label">Analyze a page</div>', unsafe_allow_html=True)
 
@@ -411,6 +464,12 @@ def render_input_section():
             label_visibility="collapsed",
             key="query_input",
         )
+
+        example_col, _ = st.columns([1, 3])
+        with example_col:
+            if st.button("Load example", type="secondary", use_container_width=True):
+                st.session_state.load_example_pending = True
+                st.rerun()
 
     # --- Document text (outside card — it's large) ---
     document = st.text_area(
@@ -474,17 +533,11 @@ def render_action_buttons(query: str, document: str, strategy: str):
         type="primary",
         use_container_width=True,
     ):
-        with st.spinner("Processing..."):
-            progress = st.empty()
-            progress.text("Chunking document...")
-            progress.text("Generating embeddings...")
-            progress.text("Computing similarity...")
-
+        with st.spinner("Chunking, embedding, and scoring..."):
             success = run_comparison(query, document, strategy)
-            progress.empty()
 
-            if success:
-                st.rerun()
+        if success:
+            st.rerun()
 
     if st.session_state.error_message:
         st.error(st.session_state.error_message)
@@ -658,6 +711,62 @@ def render_ccs_score():
 
             # Score interpretation bands
             st.caption("80+ strong · 60–79 decent · 40–59 weak · <40 low")
+
+
+# Drift map bucket colors — colorblind-safe diverging ladder (cool = aligned,
+# warm = drifting). Validated for CVD separation, lightness band, and chroma;
+# identity is never color-alone (bar height, hover tooltip, legend, and the
+# diagnostics table all carry the same information).
+DRIFT_COLORS = {
+    "Strong": "#0055CC",
+    "Moderate": "#579DFF",
+    "Weak": "#E8770C",
+    "Off-topic": "#96261B",
+}
+
+
+def render_drift_map():
+    """Render the drift map: one bar per chunk, in document order."""
+    report = st.session_state.diagnostic_report
+    if not report or report.summary.total_chunks < 2:
+        return
+
+    bars = []
+    for c in report.by_document_order():
+        color = DRIFT_COLORS.get(c.interpretation, "#97A0AF")
+        bar_height = max(8, round(c.similarity * 64))
+        # Collapse whitespace: a newline inside the HTML string would end the
+        # markdown HTML block and break the flex row.
+        preview = " ".join(c.text_preview.split())
+        tooltip = html.escape(
+            f"Chunk {c.chunk_index + 1} · {c.similarity:.2f} ({c.interpretation}) — {preview}",
+            quote=True,
+        )
+        bars.append(
+            f'<div title="{tooltip}" style="flex:1;max-width:48px;height:{bar_height}px;'
+            f'background:{color};border-radius:3px 3px 0 0;"></div>'
+        )
+
+    legend = "".join(
+        f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;'
+        f'font-size:0.78rem;color:#505F79;">'
+        f'<span style="width:10px;height:10px;border-radius:2px;background:{color};"></span>'
+        f"{label}</span>"
+        for label, color in DRIFT_COLORS.items()
+    )
+
+    with st.container(border=True):
+        st.markdown("### Drift Map")
+        st.caption(
+            "Each bar is one chunk, in document order. Taller = more aligned with the "
+            "target topic. Hover a bar for its score and text."
+        )
+        st.markdown(
+            f'<div style="display:flex;align-items:flex-end;gap:2px;height:68px;'
+            f'border-bottom:1px solid #DFE1E6;">{"".join(bars)}</div>'
+            f'<div style="margin-top:8px;">{legend}</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def render_action_plan():
@@ -990,6 +1099,10 @@ def main():
     # Initialize state
     init_session_state()
 
+    # Warm the embedding model so the first analysis doesn't stall
+    with st.spinner("Preparing embedding model..."):
+        warm_embedding_model()
+
     # Header
     render_header()
 
@@ -1006,17 +1119,20 @@ def main():
         # 1. CCS Score (colored banner card)
         render_ccs_score()
 
-        # 2. Action Plan (GEO steps + merged recommendations)
+        # 2. Drift map (per-chunk alignment, document order)
+        render_drift_map()
+
+        # 3. Action Plan (GEO steps + merged recommendations)
         render_action_plan()
 
         st.markdown('<div style="margin-top: 16px;"></div>', unsafe_allow_html=True)
 
-        # 3. Detailed Diagnostics (collapsed)
+        # 4. Detailed Diagnostics (collapsed)
         render_diagnostics_expander()
 
     # Footer
     st.markdown(
-        '<div class="footer-caption">SimCheck v1.1.0 · Local-only semantic analysis · No data leaves your machine</div>',
+        '<div class="footer-caption">SimCheck v1.1.1 · Local-only semantic analysis · No data leaves your machine</div>',
         unsafe_allow_html=True,
     )
 
