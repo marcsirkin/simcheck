@@ -175,6 +175,17 @@ CUSTOM_CSS = """
     border: 1px solid #B3D4FF;
 }
 
+/* ── Help (?) tooltip icon: keep visible, brighten on hover ─────── */
+[data-testid="stTooltipHoverTarget"] svg {
+    color: #6B778C;
+    opacity: 0.9;
+    transition: color 0.15s ease;
+}
+[data-testid="stTooltipHoverTarget"]:hover svg {
+    color: #1868DB;
+    opacity: 1;
+}
+
 /* ── Input focus state ──────────────────────────────────────────── */
 .stTextInput input:focus,
 .stTextArea textarea:focus {
@@ -425,12 +436,19 @@ def render_input_section():
 
     Returns tuple of (query, document, strategy) strings.
     """
-    # Apply pending example load before any widget below is instantiated
-    # (Streamlit forbids writing to a widget key after the widget renders).
+    # Apply pending example load / clear before any widget below is
+    # instantiated (Streamlit forbids writing to a widget key after the
+    # widget renders).
     if st.session_state.pop("load_example_pending", False):
         st.session_state.query_input = EXAMPLE_QUERY
         st.session_state.document_input = EXAMPLE_DOCUMENT
         st.session_state.strategy_select = "markdown"
+        st.session_state.fetch_status = ""
+        clear_results()
+    if st.session_state.pop("clear_content_pending", False):
+        st.session_state.query_input = ""
+        st.session_state.document_input = ""
+        st.session_state.url_input = ""
         st.session_state.fetch_status = ""
         clear_results()
 
@@ -479,19 +497,23 @@ def render_input_section():
             placeholder='Phrase beats keyword: "DKIM email authentication", not "dkim"',
             key="query_input",
             help=(
-                "Phrase your topic the way a user would search or ask an AI assistant "
-                "(entity + intent). Modern LLM search matches meaning, not keywords: "
-                "a bare keyword gives the embedding model almost no intent to match "
-                "against, so scores run systematically lower. SimCheck auto-adjusts "
-                "thresholds for 1–2 word topics, but a full phrase gives more "
-                "reliable results."
+                "For best results, use an entity + intent phrase (e.g., "
+                "\"How to set up DKIM\") rather than a single keyword. "
+                "Modern LLM search matches meaning, not keywords: a bare keyword "
+                "gives the embedding model almost no intent to match against, so "
+                "scores run systematically lower. SimCheck auto-adjusts thresholds "
+                "for 1–2 word topics, but a full phrase gives more reliable results."
             ),
         )
 
-        example_col, _ = st.columns([1, 3])
+        example_col, clear_col, _ = st.columns([1, 1, 2])
         with example_col:
             if st.button("Load example", type="secondary", use_container_width=True):
                 st.session_state.load_example_pending = True
+                st.rerun()
+        with clear_col:
+            if st.button("Clear content", type="secondary", use_container_width=True):
+                st.session_state.clear_content_pending = True
                 st.rerun()
 
     # --- Document text (outside card — it's large) ---
