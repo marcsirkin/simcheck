@@ -31,7 +31,8 @@ from simcheck.core.recommendations import (
     RecommendationPriority,
     RecommendationType,
 )
-from simcheck.core.geo import generate_geo_next_steps, GeoIntent, GeoPriority
+from simcheck.core.geo import generate_geo_next_steps, infer_intent, GeoIntent, GeoPriority
+from simcheck.core.readiness import compute_readiness_score
 
 
 # =============================================================================
@@ -207,32 +208,42 @@ h3 { margin-top: 0.5rem; margin-bottom: 0.5rem; }
 # Example content (demo / first-run experience)
 # =============================================================================
 
-EXAMPLE_QUERY = "how to improve email deliverability"
+EXAMPLE_QUERY = "DKIM email authentication"
 
-EXAMPLE_DOCUMENT = """# The Complete Guide to Email Deliverability
+EXAMPLE_DOCUMENT = """# What Is DKIM? Email Authentication Explained
 
-Email deliverability is the ability of your messages to reach subscriber inboxes instead of spam folders. Improving email deliverability means fixing sender reputation, authenticating your domain, and keeping your list healthy. This guide covers the three areas that matter most.
+DKIM (DomainKeys Identified Mail) is an email authentication standard that lets a receiving mail server verify a message really came from the domain it claims and was not altered in transit. DKIM email authentication works by adding a cryptographic signature to every outgoing message, which mailbox providers check against a public key published in your DNS.
 
-## Why emails land in spam
+## How DKIM signing works
 
-Mailbox providers score every incoming message. Poor sender reputation, missing authentication, and low engagement push your email toward the spam folder. High bounce rates and spam complaints above 0.1% are the fastest way to damage deliverability.
+When your mail server sends a message, it selects a set of headers plus the body, computes a hash, and encrypts that hash with the domain's private key. The result travels with the message as a DKIM-Signature header. The receiving server looks up the matching public key in DNS, decrypts the signature, and recomputes the hash. If the two hashes match, the message passes DKIM: the content was not modified in transit and the signing domain vouches for it.
 
-## Authentication: SPF, DKIM, and DMARC
+## Publishing your DKIM record
 
-Set up all three authentication standards to prove you own your sending domain. SPF lists which servers may send for your domain. DKIM signs each message cryptographically. DMARC tells providers what to do when a message fails both checks. Publish a DMARC policy of at least p=quarantine once SPF and DKIM pass for 100% of your mail. See [Google's sender guidelines](https://support.google.com/mail/answer/81126) for current requirements.
+A DKIM record is a DNS TXT entry that holds the public key. The selector — a short label like "s2026" — tells receiving servers where to find the right key, which lets you rotate keys without breaking older mail. A selector of s2026 for example.com points at s2026._domainkey.example.com. Rotate keys at least twice a year, and keep old selectors published for a week or two so in-flight mail still validates.
 
-## How our company got started
+## Our favorite conference snacks
 
-Back in 2014, three friends met at a hackathon in Austin and bonded over a shared love of clever engineering puzzles. After two failed prototypes and a memorable road trip to a demo day in San Francisco, the team finally rented its first tiny office above a taco shop. The early days were chaotic but joyful.
+Every year the team argues about the best conference snack table. Last spring the espresso cart won by a landslide, though veteran booth staff still swear by the pretzel wall from the Denver expo. We keep a shared spreadsheet ranking every venue's coffee, and it is a source of surprisingly heated debate.
 
-## Our office culture
+## Weekend hiking recap
 
-We take coffee very seriously — the team runs a rotating barista schedule and a tasting club every Friday. Between the foosball table, the office dog Biscuit, and quarterly hiking retreats, we have built a culture people genuinely enjoy. Remote teammates join our rituals over video.
+Half the team spent Saturday on the ridge trail, and the photos flooded the group chat by noon. If you ever visit in October, the larches alone are worth the trip. Next month we're planning the waterfall loop, weather permitting.
 
-## List hygiene and monitoring
+## DKIM, SPF, and DMARC together
 
-Remove subscribers who have not opened in 90 days, and use double opt-in to keep invalid addresses off your list. Keep your bounce rate below 2%. Monitor inbox placement weekly with seed testing, and watch Google Postmaster Tools for reputation drops. When deliverability dips, slow your sending volume and re-warm the domain gradually.
+DKIM proves message integrity. SPF lists which servers may send for your domain. DMARC tells receivers what to do when either check fails and sends you aggregate reports. Gmail and Yahoo now require all three for bulk senders, so treat DMARC enforcement as the finish line: start at p=none to collect reports, then move to quarantine, and finally to reject.
 """
+
+
+# Intent labels shared by the settings dropdown and the action plan header.
+# Framed as "what kind of AI answer are you optimizing for".
+GEO_INTENT_LABELS = {
+    "auto": "Auto-detect (recommended)",
+    "informational": "Informational — definition / AI Overview-style answer",
+    "how_to": "How-to — step-by-step task answer",
+    "commercial": "Commercial — comparison / buying decision",
+}
 
 
 # =============================================================================
@@ -274,9 +285,14 @@ def init_session_state():
         "has_seen_intro": False,
         "geo_intent": "auto",
     }
+    first_run = "document_text" not in st.session_state
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+    # Pre-load the example on the first visit so the app opens demo-ready.
+    if first_run:
+        st.session_state.load_example_pending = True
 
 
 def clear_results():
@@ -457,17 +473,18 @@ def render_input_section():
         if st.session_state.get("fetch_status"):
             st.caption(f"✓ {st.session_state.fetch_status} (via markitdown)")
 
-        # Target topic
+        # Target topic — visible label so the help icon (ⓘ) is discoverable
         query = st.text_input(
             "Target topic",
-            placeholder='Target topic — phrase beats keyword: "DKIM email authentication", not "dkim"',
-            label_visibility="collapsed",
+            placeholder='Phrase beats keyword: "DKIM email authentication", not "dkim"',
             key="query_input",
             help=(
-                "Phrase your topic the way a user would search or ask it (entity + intent). "
-                "Bare keywords score systematically lower with embedding models; "
-                "SimCheck auto-adjusts thresholds for 1–2 word topics, but a full phrase "
-                "gives more reliable results."
+                "Phrase your topic the way a user would search or ask an AI assistant "
+                "(entity + intent). Modern LLM search matches meaning, not keywords: "
+                "a bare keyword gives the embedding model almost no intent to match "
+                "against, so scores run systematically lower. SimCheck auto-adjusts "
+                "thresholds for 1–2 word topics, but a full phrase gives more "
+                "reliable results."
             ),
         )
 
@@ -513,16 +530,21 @@ def render_input_section():
             intent = st.selectbox(
                 "GEO intent",
                 options=["auto", "informational", "how_to", "commercial"],
-                format_func=lambda x: {
-                    "auto": "Auto-detect (recommended)",
-                    "informational": "Informational (define/explain)",
-                    "how_to": "How-to (steps/procedure)",
-                    "commercial": "Commercial (compare/choose/buy)",
-                }[x],
-                help="Override intent detection for tailored action plan suggestions.",
+                format_func=lambda x: GEO_INTENT_LABELS[x],
+                help=(
+                    "What kind of AI answer you're optimizing for. This tailors the "
+                    "action plan: informational pushes definitions and FAQs, how-to "
+                    "pushes numbered steps and prerequisites, commercial pushes "
+                    "comparisons and decision criteria."
+                ),
                 key="geo_intent",
             )
             _ = intent
+            # Tell the user what auto-detect resolved to for the current topic
+            current_query = st.session_state.get("query_input", "")
+            if st.session_state.get("geo_intent") == "auto" and current_query.strip():
+                detected = infer_intent(current_query)
+                st.caption(f"Auto-detect for this topic: {GEO_INTENT_LABELS[detected.value]}")
 
     return query, document, strategy
 
@@ -651,8 +673,8 @@ def _ccs_interpretation_line(score: float) -> str:
 # Results rendering
 # =============================================================================
 
-def render_ccs_score():
-    """Render the CCS score as a colored-accent banner card."""
+def render_score_banner(geo=None):
+    """Render the SimScore + CCS banner card with a colored accent."""
     result = st.session_state.comparison_result
     report = st.session_state.diagnostic_report
     rec_report = st.session_state.recommendation_report
@@ -663,12 +685,18 @@ def render_ccs_score():
     coverage = report.coverage
     interp = _ccs_interpretation_line(coverage.score)
 
-    # Pick accent color for the CCS band
-    if coverage.score >= 80:
+    # SimScore (Feature 8): composite readiness metric, needs GEO signals
+    readiness = None
+    if geo is not None:
+        readiness = compute_readiness_score(report, geo.signals, geo.intent)
+
+    # Accent color follows the headline score (SimScore when available)
+    headline = readiness.score if readiness else coverage.score
+    if headline >= 80:
         accent_color = "#00875A"
-    elif coverage.score >= 60:
+    elif headline >= 60:
         accent_color = "#FF991F"
-    elif coverage.score >= 40:
+    elif headline >= 40:
         accent_color = "#DE350B"
     else:
         accent_color = "#97A0AF"
@@ -680,7 +708,17 @@ def render_ccs_score():
             unsafe_allow_html=True,
         )
 
-        score_col, detail_col = st.columns([1, 3])
+        if readiness:
+            sim_col, ccs_col, detail_col = st.columns([1, 1, 3])
+            with sim_col:
+                st.markdown(
+                    f'<div class="ccs-score-big">{readiness.score_rounded}</div>'
+                    f'<div class="ccs-label">SimScore — AI readiness</div>',
+                    unsafe_allow_html=True,
+                )
+            score_col = ccs_col
+        else:
+            score_col, detail_col = st.columns([1, 3])
 
         with score_col:
             st.markdown(
@@ -690,6 +728,14 @@ def render_ccs_score():
             )
 
         with detail_col:
+            if readiness:
+                comp = readiness.components
+                st.markdown(f"**{readiness.interpretation}**")
+                st.caption(
+                    f"SimScore components — Coverage: {comp['coverage']:.0f} · "
+                    f"Structure: {comp['structure']:.0f} · Evidence: {comp['evidence']:.0f} · "
+                    f"Answerability: {comp['answerability']:.0f}"
+                )
             st.markdown(f"**{interp}**")
 
             # Bucket counts
@@ -786,23 +832,29 @@ def render_drift_map():
         )
 
 
-def render_action_plan():
+def compute_geo_report():
+    """Compute the GEO next-steps report for the current analysis (or None)."""
+    report = st.session_state.diagnostic_report
+    if not report:
+        return None
+    document = st.session_state.get("last_analyzed_document") or ""
+    if not document.strip():
+        return None
+    intent_override = GeoIntent(st.session_state.get("geo_intent", "auto"))
+    return generate_geo_next_steps(report, document, intent_override=intent_override)
+
+
+def render_action_plan(geo):
     """Render the combined action plan: GEO steps + merged recommendations."""
     report = st.session_state.diagnostic_report
     rec_report = st.session_state.recommendation_report
 
-    if not report:
+    if not report or geo is None:
         return
-
-    document = st.session_state.get("last_analyzed_document") or ""
-    if not document.strip():
-        return
-
-    intent_override = GeoIntent(st.session_state.get("geo_intent", "auto"))
-    geo = generate_geo_next_steps(report, document, intent_override=intent_override)
 
     with st.container(border=True):
         st.markdown("### Action Plan")
+        st.caption(f"Optimizing for: {GEO_INTENT_LABELS[geo.intent.value]}")
         st.write(geo.summary)
 
         # --- Content signals in a tinted strip ---
@@ -1134,14 +1186,17 @@ def main():
     if st.session_state.is_indexed:
         st.markdown('<div style="margin-top: 32px;"></div>', unsafe_allow_html=True)
 
-        # 1. CCS Score (colored banner card)
-        render_ccs_score()
+        # GEO report feeds both the score banner (SimScore) and the action plan
+        geo = compute_geo_report()
+
+        # 1. SimScore + CCS banner card
+        render_score_banner(geo)
 
         # 2. Drift map (per-chunk alignment, document order)
         render_drift_map()
 
         # 3. Action Plan (GEO steps + merged recommendations)
-        render_action_plan()
+        render_action_plan(geo)
 
         st.markdown('<div style="margin-top: 16px;"></div>', unsafe_allow_html=True)
 
@@ -1150,7 +1205,7 @@ def main():
 
     # Footer
     st.markdown(
-        '<div class="footer-caption">SimCheck v1.2.0 · Local-only semantic analysis · No data leaves your machine</div>',
+        '<div class="footer-caption">SimCheck v1.3.0 · Local-only semantic analysis · No data leaves your machine</div>',
         unsafe_allow_html=True,
     )
 

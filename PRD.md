@@ -228,6 +228,20 @@ to LLM relevance grades.
 
 ---
 
+### Feature 8: SimScore (LLM Readiness) ✅
+**Description:** A single reportable 0-100 metric blending semantic coverage with AI-answerability signals.
+
+**User Story:** As a marketer/agency, I want one headline number I can report to clients to prove content is optimized for AI search.
+
+**Acceptance Criteria:**
+- [x] `compute_readiness_score(report, signals, intent)` -> `ReadinessScore`
+- [x] Composite: coverage (CCS, 50%) + structure (20%) + evidence (15%) + answerability (15%)
+- [x] Steps signal only required for how-to intent
+- [x] Bands: 80+ AI-ready, 60-79 Nearly ready, 40-59 Needs work, <40 Not ready
+- [x] Banner shows SimScore headline + component breakdown alongside CCS
+
+---
+
 ## Technical Architecture
 
 ### Tech Stack
@@ -388,10 +402,10 @@ Run the same query against:
 
 ## Session Management
 
-**Test Count:** 283 passing
-**Features Complete:** 1, 2, 3, 4, 5, 6, 7
-**Version:** v1.2.0
-**Status:** Query-length-aware thresholds + CCS interpretation guidance + demo polish
+**Test Count:** 292 passing
+**Features Complete:** 1, 2, 3, 4, 5, 6, 7, 8
+**Version:** v1.3.0
+**Status:** SimScore readiness metric + DKIM example pre-load + intent clarity
 
 **Notes:**
 - Restart Claude Code session at 40-50% context

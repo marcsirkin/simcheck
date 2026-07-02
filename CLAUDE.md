@@ -17,7 +17,8 @@ simcheck/
 │   ├── engine.py           # Main comparison orchestration (compare_query_to_document)
 │   ├── diagnostics.py      # Chunk-level diagnostics, CCS scoring, section analysis
 │   ├── recommendations.py  # CCS improvement recommendations (prioritized, chunk-specific)
-│   └── geo.py              # GEO/AI-SEO action plan (intent detection, content signals, next steps)
+│   ├── geo.py              # GEO/AI-SEO action plan (intent detection, content signals, next steps)
+│   └── readiness.py        # SimScore: composite LLM readiness metric (Feature 8)
 ├── tests/                  # Unit tests (272 tests)
 │   ├── test_models.py
 │   ├── test_chunker.py
@@ -80,6 +81,12 @@ requirements.txt
 - Content signal extraction (headings, links, FAQ, TL;DR, steps, examples, etc.)
 - Prioritized editor-friendly checklist with time estimates
 
+### Feature 8: SimScore (LLM Readiness)
+- `compute_readiness_score(report, signals, intent)` -> `ReadinessScore`
+- Composite 0-100: coverage (CCS, 50%) + structure (20%) + evidence (15%) + answerability (15%)
+- Bands: 80+ AI-ready, 60-79 Nearly ready, 40-59 Needs work, <40 Not ready
+- Reportable headline metric; component breakdown shown in UI banner
+
 ## Code Standards
 
 ### Naming Conventions
@@ -100,7 +107,7 @@ requirements.txt
 - Validate inputs at module boundaries
 
 ### Testing
-- Unit tests for all core logic (283 tests)
+- Unit tests for all core logic (292 tests)
 - Test edge cases explicitly
 - Use pytest conventions
 
@@ -129,6 +136,6 @@ streamlit run app.py
 - **Thin UI layer**: all semantic logic in `simcheck.core`, Streamlit just renders
 
 ## Current Status
-**Features Complete:** 1, 2, 3, 4, 5, 6, 7
-**Test Count:** 283 passing
-**Status:** v1.2.0 — query-length-aware thresholds, CCS relative-measure caption, phrase coaching
+**Features Complete:** 1, 2, 3, 4, 5, 6, 7, 8
+**Test Count:** 292 passing
+**Status:** v1.3.0 — SimScore readiness metric, DKIM example pre-loaded on first visit, intent labels clarified

@@ -9,6 +9,7 @@ SimCheck helps you understand how well your content semantically aligns with tar
 - **Local-only**: All processing happens on your machine using sentence-transformers
 - **Chunk-level analysis**: See exactly which parts of your document align (or don't) with your concept
 - **Concept Coverage Score (CCS)**: A weighted 0-100 score measuring how thoroughly your document expresses the target concept
+- **SimScore (LLM Readiness)**: A composite 0-100 metric blending CCS with structure, evidence, and answerability signals — one reportable number for AI-search readiness
 - **Action Plan (GEO)**: A prioritized, editor-friendly checklist (front-load answer, reduce drift, add structure/evidence)
 - **Hierarchical chunking**: Parse markdown/HTML structure to preserve document hierarchy (sections, subsections, paragraphs)
 - **Improvement recommendations**: Actionable suggestions to boost your CCS, prioritized by impact
@@ -155,7 +156,7 @@ The action plan auto-detects query intent (informational / how-to / commercial) 
 pytest simcheck/tests/ -v
 ```
 
-283 tests covering chunking, embeddings, similarity, diagnostics, CCS, hierarchical parsing, recommendations, and GEO signals.
+292 tests covering chunking, embeddings, similarity, diagnostics, CCS, SimScore readiness, hierarchical parsing, recommendations, and GEO signals.
 
 ## License
 
