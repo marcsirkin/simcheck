@@ -49,13 +49,25 @@ requirements.txt
 - Section-level analysis for hierarchical documents
 
 ### Feature 3: Streamlit Playground UI
-- Single-page flow: hero input card, CCS banner, drift map, action plan, diagnostics expander
+- Single-page flow: hero input card, SimScore+CCS banner, drift map, action plan, diagnostics expander
 - URL fetcher (convert webpage to Markdown locally via markitdown)
-- "Load example" button (pre-baked query + document for demos)
-- Chunking strategy selector, GEO intent override
-- Drift map: per-chunk alignment bars in document order (colorblind-safe palette)
-- CCS score display, similarity metrics, section analysis, debug panel
+- DKIM example pre-loaded on first visit; "Load example" / "Clear content" buttons
+- Chunking strategy selector; GEO intent selector with AI-answer-type labels + auto-detect caption
+- Drift map: clickable per-chunk bars in document order (colorblind-safe palette);
+  click opens Detailed Diagnostics and smooth-scrolls to that chunk
+- Similarity metrics, section analysis, debug panel
 - Embedding model warmed at startup (st.cache_resource)
+
+### Streamlit implementation notes (hard-won)
+- Writing to a widget's session-state key after the widget renders raises
+  StreamlitAPIException — use a pending flag consumed at the top of the render
+  function (see load_example_pending / clear_content_pending in app.py)
+- st.markdown sanitizes <script>; interactive HTML must go through
+  components.html (drift map does this)
+- scrollIntoView called from a component iframe on a parent-page element
+  silently no-ops in Chrome — scroll section[data-testid="stMain"] directly
+- Newlines inside an HTML string passed to st.markdown terminate the HTML
+  block mid-element — collapse whitespace first
 
 ### Feature 4: Concept Coverage Score (CCS)
 - Weighted 0-100 score: Strong=1.0, Moderate=0.6, Weak=0.2, Off-topic=0.0
@@ -138,4 +150,4 @@ streamlit run app.py
 ## Current Status
 **Features Complete:** 1, 2, 3, 4, 5, 6, 7, 8
 **Test Count:** 292 passing
-**Status:** v1.3.0 — SimScore readiness metric, DKIM example pre-loaded on first visit, intent labels clarified
+**Status:** v1.3.0 — SimScore readiness metric, clickable drift map, DKIM example pre-load, clear-content button, intent labels clarified

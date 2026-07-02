@@ -13,7 +13,8 @@ SimCheck helps you understand how well your content semantically aligns with tar
 - **Action Plan (GEO)**: A prioritized, editor-friendly checklist (front-load answer, reduce drift, add structure/evidence)
 - **Hierarchical chunking**: Parse markdown/HTML structure to preserve document hierarchy (sections, subsections, paragraphs)
 - **Improvement recommendations**: Actionable suggestions to boost your CCS, prioritized by impact
-- **Interactive UI**: Streamlit playground for exploring results
+- **Drift Map**: clickable per-chunk alignment bars — click a bar to jump to that chunk's details
+- **Interactive UI**: Streamlit playground for exploring results (opens with a pre-loaded example)
 
 ## Installation
 

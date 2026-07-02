@@ -120,13 +120,18 @@ To keep this tight, the application will **not**:
 **User Story:** As an analyst, I want a visual interface to explore results, compare content versions, and drill into chunk-level details.
 
 **Acceptance Criteria:**
-- [x] Single-page flow: hero input card, CCS banner, action plan, diagnostics expander
+- [x] Single-page flow: hero input card, SimScore+CCS banner, drift map, action plan, diagnostics expander
 - [x] Text input for query (target topic) and document
+- [x] DKIM example pre-loaded on first visit; Load example / Clear content buttons
 - [x] URL fetcher (convert webpage to Markdown via markitdown)
 - [x] Chunking strategy selector (flat, auto, markdown, html)
-- [x] GEO intent override (auto, informational, how_to, commercial)
+- [x] GEO intent override with AI-answer-type labels + auto-detect caption
 - [x] "Analyze Document" full-width button triggers full pipeline
-- [x] CCS score as colored-accent banner card (green/amber/red/gray by band)
+- [x] Embedding model warmed at startup (no first-click stall)
+- [x] SimScore + CCS as colored-accent banner card with component breakdown
+- [x] Drift map: clickable per-chunk bars (colorblind-safe diverging palette);
+      click opens Detailed Diagnostics and smooth-scrolls to the chunk
+- [x] Phrase-vs-keyword coaching (placeholder + help tooltip on Target topic)
 - [x] Similarity metrics (max, avg, chunks, on-topic %)
 - [x] Per-chunk diagnostics table with sorting and level filtering
 - [x] Best/worst chunks quick access
@@ -405,7 +410,7 @@ Run the same query against:
 **Test Count:** 292 passing
 **Features Complete:** 1, 2, 3, 4, 5, 6, 7, 8
 **Version:** v1.3.0
-**Status:** SimScore readiness metric + DKIM example pre-load + intent clarity
+**Status:** SimScore readiness metric + clickable drift map + DKIM example pre-load + intent clarity
 
 **Notes:**
 - Restart Claude Code session at 40-50% context
