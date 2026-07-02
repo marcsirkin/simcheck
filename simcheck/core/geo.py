@@ -100,13 +100,13 @@ _FAQ_RE = re.compile(r"\bFAQ\b|frequently asked questions", re.IGNORECASE)
 _SOURCES_RE = re.compile(r"^(references|sources|further reading)$", re.IGNORECASE)
 _STEPS_RE = re.compile(r"^\s*(step\s+\d+|[0-9]+\.)\s+", re.IGNORECASE)
 _TABLE_LINE_RE = re.compile(r"^\s*\|.*\|\s*$")
-_HTML_H2_RE = re.compile(r"<h2\\b", re.IGNORECASE)
-_HTML_H3_RE = re.compile(r"<h3\\b", re.IGNORECASE)
+_HTML_H2_RE = re.compile(r"<h2\b", re.IGNORECASE)
+_HTML_H3_RE = re.compile(r"<h3\b", re.IGNORECASE)
 _DEFINITION_RE = re.compile(r"\b(is|are|refers to|means)\b", re.IGNORECASE)
 _EXAMPLE_RE = re.compile(r"\b(for example|e\.g\.|example:)\b", re.IGNORECASE)
 _COMPARISON_RE = re.compile(r"\b(vs\.?|versus|compare|comparison|alternatives?)\b", re.IGNORECASE)
-_FRESHNESS_RE = re.compile(r"\b(updated|last updated|as of|new in)\b|\b20(1\\d|2\\d)\\b", re.IGNORECASE)
-_NUMBER_RE = re.compile(r"\\d")
+_FRESHNESS_RE = re.compile(r"\b(updated|last updated|as of|new in)\b|\b20(1\d|2\d)\b", re.IGNORECASE)
+_NUMBER_RE = re.compile(r"\d")
 
 
 def _iter_non_code_lines(document: str) -> Iterable[str]:
@@ -207,7 +207,7 @@ def extract_content_signals(document: str, query: str) -> ContentSignals:
             table_like_lines += 1
         if _FAQ_RE.search(line):
             has_faq = True
-        normalized_heading = re.sub(r"^\\s{0,3}#+\\s*", "", line).strip()
+        normalized_heading = re.sub(r"^\s{0,3}#+\s*", "", line).strip()
         if _SOURCES_RE.match(normalized_heading):
             has_sources_section = True
         if _STEPS_RE.match(line):
