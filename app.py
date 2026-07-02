@@ -18,6 +18,7 @@ Design Principles:
 import html
 
 import streamlit as st
+import streamlit.components.v1 as components
 from markitdown import MarkItDown
 
 # Import backend modules (Features 1 + 2 + 5 + 6)
@@ -810,8 +811,61 @@ DRIFT_COLORS = {
 }
 
 
+# JS for the drift map component. Runs inside the component iframe;
+# reaches the parent page to open the Detailed Diagnostics expander and
+# smooth-scroll to the clicked chunk's anchor. The anchor may not be in
+# the DOM until the expander mounts, hence the retry loop.
+_DRIFT_MAP_JS = """
+<script>
+function goChunk(i) {
+  const doc = window.parent.document;
+  let target = null;
+  doc.querySelectorAll('[data-testid="stExpander"]').forEach(e => {
+    if (e.textContent.includes('Detailed Diagnostics')) target = e;
+  });
+  if (target) {
+    const details = target.querySelector('details') ||
+                    (target.tagName === 'DETAILS' ? target : null);
+    if (details && !details.open) {
+      const s = details.querySelector('summary');
+      if (s) s.click();
+    }
+  }
+  // Streamlit's page scroll lives on section[data-testid="stMain"], and
+  // scrollIntoView called from inside a component iframe on a parent-page
+  // element silently no-ops in Chrome — so scroll the container explicitly.
+  function scrollToEl(el) {
+    const scroller = doc.querySelector('section[data-testid="stMain"]');
+    if (scroller) {
+      const top = el.getBoundingClientRect().top -
+                  scroller.getBoundingClientRect().top +
+                  scroller.scrollTop - scroller.clientHeight / 2;
+      scroller.scrollTo({top: Math.max(top, 0), behavior: 'smooth'});
+    } else {
+      el.scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+  }
+  let tries = 0;
+  const timer = setInterval(() => {
+    const el = doc.getElementById('simcheck-chunk-' + i);
+    tries += 1;
+    if (el && el.getBoundingClientRect().height >= 0 && tries >= 3) {
+      // Wait a few ticks so the expander content has laid out before
+      // measuring the anchor's position.
+      clearInterval(timer);
+      scrollToEl(el);
+    } else if (tries > 14) {
+      clearInterval(timer);
+      if (target) scrollToEl(target);
+    }
+  }, 150);
+}
+</script>
+"""
+
+
 def render_drift_map():
-    """Render the drift map: one bar per chunk, in document order."""
+    """Render the drift map: one clickable bar per chunk, in document order."""
     report = st.session_state.diagnostic_report
     if not report or report.summary.total_chunks < 2:
         return
@@ -820,21 +874,20 @@ def render_drift_map():
     for c in report.by_document_order():
         color = DRIFT_COLORS.get(c.interpretation, "#97A0AF")
         bar_height = max(8, round(c.similarity * 64))
-        # Collapse whitespace: a newline inside the HTML string would end the
-        # markdown HTML block and break the flex row.
         preview = " ".join(c.text_preview.split())
         tooltip = html.escape(
             f"Chunk {c.chunk_index + 1} · {c.similarity:.2f} ({c.interpretation}) — {preview}",
             quote=True,
         )
         bars.append(
-            f'<div title="{tooltip}" style="flex:1;max-width:48px;height:{bar_height}px;'
+            f'<div class="bar" title="{tooltip}" onclick="goChunk({c.chunk_index})" '
+            f'style="flex:1;max-width:48px;height:{bar_height}px;'
             f'background:{color};border-radius:3px 3px 0 0;"></div>'
         )
 
     legend = "".join(
         f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;'
-        f'font-size:0.78rem;color:#505F79;">'
+        f'font-size:12px;color:#505F79;">'
         f'<span style="width:10px;height:10px;border-radius:2px;background:{color};"></span>'
         f"{label}</span>"
         for label, color in DRIFT_COLORS.items()
@@ -844,13 +897,20 @@ def render_drift_map():
         st.markdown("### Drift Map")
         st.caption(
             "Each bar is one chunk, in document order. Taller = more aligned with the "
-            "target topic. Hover a bar for its score and text."
+            "target topic. Hover for score and text; click a bar to jump to that "
+            "chunk's details below."
         )
-        st.markdown(
+        # components.html (not st.markdown) because the click handlers need
+        # a script, which st.markdown sanitizes away.
+        components.html(
+            '<style>.bar {cursor: pointer;} .bar:hover {opacity: 0.75;}</style>'
+            '<div style="font-family: \'Source Sans Pro\', sans-serif;">'
             f'<div style="display:flex;align-items:flex-end;gap:2px;height:68px;'
             f'border-bottom:1px solid #DFE1E6;">{"".join(bars)}</div>'
-            f'<div style="margin-top:8px;">{legend}</div>',
-            unsafe_allow_html=True,
+            f'<div style="margin-top:8px;">{legend}</div>'
+            '</div>'
+            + _DRIFT_MAP_JS,
+            height=112,
         )
 
 
@@ -1129,6 +1189,12 @@ def render_diagnostics_expander():
 
         for chunk in chunks:
             with st.container():
+                # Scroll anchor targeted by the drift map's click handler
+                st.markdown(
+                    f'<div id="simcheck-chunk-{chunk.chunk_index}" '
+                    f'style="scroll-margin-top:80px;"></div>',
+                    unsafe_allow_html=True,
+                )
                 if report.is_hierarchical():
                     c1, c2, c3, c4 = st.columns([0.5, 0.8, 1, 3.7])
                 else:
