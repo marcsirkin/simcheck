@@ -41,6 +41,7 @@ from simcheck.quality.report import build_report, site_headline
 from simcheck.quality.rubric import PQ_LEVELS, PQ_SLIDER, QUESTIONS_BY_ID
 from simcheck.quality.site import DEFAULT_SAMPLE, MAX_SAMPLE, SiteAuditError, audit_site
 from simcheck.quality.snapshot import FetchBlockedError, SnapshotError, parse_snapshot, snapshot_url
+from ui.access_views import guard, max_site_sample
 
 
 INK = "#15181D"
@@ -215,6 +216,8 @@ def render_url_bar(run_content_match: Callable) -> None:
             return
         if "//" not in url:
             url = "https://" + url
+        if not guard("analyze"):
+            return
         with st.spinner("Fetching and rating the page..."):
             _analyze(url, _state().qa_query.strip(), _state().qa_paste_html, run_content_match)
 
@@ -346,7 +349,7 @@ def render_page_quality_tab() -> None:
     explainer = make_explainer(keys) if keys else None
     with right:
         if st.button("Explain this rating", disabled=explainer is None, use_container_width=True,
-                     help=None if explainer else "Needs OPENROUTER_API_KEY"):
+                     help=None if explainer else "Needs OPENROUTER_API_KEY") and guard("explain"):
             with st.spinner("Asking Claude for evidence..."):
                 try:
                     questions = [QUESTIONS_BY_ID[q] for q in EXPLAIN_QUESTIONS]
@@ -467,7 +470,7 @@ def render_visibility_tab() -> None:
         run = st.button("Run probes", disabled=not (keys and keys.has_openrouter) or not queries,
                         use_container_width=True,
                         help=None if keys and keys.has_openrouter else "Needs OPENROUTER_API_KEY")
-    if run:
+    if run and guard("probe"):
         with st.spinner(f"Asking {len(queries)} questions..."):
             try:
                 s.probes = run_probes(queries, a["snapshot"].final_url, OpenRouterClient(api_key=keys.openrouter))
@@ -529,7 +532,8 @@ def render_site_audit_tab() -> None:
         default_site = s.analysis["snapshot"].host if s.analysis and s.analysis.get("snapshot") else ""
         site = st.text_input("Site", value=default_site, placeholder="example.com", key="site_input")
     with c2:
-        n = st.slider("Pages to sample", 5, MAX_SAMPLE, DEFAULT_SAMPLE, step=5)
+        cap = max_site_sample(MAX_SAMPLE)
+        n = st.slider("Pages to sample", 5, cap, min(DEFAULT_SAMPLE, cap), step=5)
     with c3:
         go = st.button("Audit site", type="primary", use_container_width=True)
 
@@ -540,7 +544,7 @@ def render_site_audit_tab() -> None:
             st.error("Add TYPESAFE_API_KEY to ~/.config/simcheck/.env to rate pages.")
         elif not site.strip():
             st.warning("Enter a site.")
-        else:
+        elif guard("site_audit"):
             bar = st.progress(0.0, text="Finding pages...")
             try:
                 s.site_audit = audit_site(site, classifier, n,

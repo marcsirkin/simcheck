@@ -114,18 +114,34 @@ def load_api_keys(env_file: Optional[Path] = None) -> ApiKeys:
     Raises:
         ConfigError: If the key file is inside the repo or not chmod 600
     """
-    path = env_file if env_file is not None else _resolve_env_file()
-
-    file_values: dict = {}
-    if path.exists():
-        _check_file_safety(path)
-        file_values = dotenv_values(path)
-
-    def _get(name: str) -> Optional[str]:
-        value = os.environ.get(name) or file_values.get(name)
-        return value.strip() if value and value.strip() else None
-
     return ApiKeys(
-        openrouter=_get("OPENROUTER_API_KEY"),
-        typesafe=_get("TYPESAFE_API_KEY"),
+        openrouter=load_setting("OPENROUTER_API_KEY", env_file),
+        typesafe=load_setting("TYPESAFE_API_KEY", env_file),
     )
+
+
+def load_setting(name: str, env_file: Optional[Path] = None) -> Optional[str]:
+    """
+    Read one setting: shell environment first, then the external key file.
+
+    Hosted deployments (Streamlit Cloud, Hugging Face Spaces) expose their
+    secrets as environment variables, so the same code works there with no
+    key file.
+
+    Args:
+        name: Variable name
+        env_file: Explicit key file path (tests); defaults to _resolve_env_file()
+
+    Returns:
+        Stripped value, or None if unset/blank
+
+    Raises:
+        ConfigError: If the key file is inside the repo or not chmod 600
+    """
+    value = os.environ.get(name)
+    if not (value and value.strip()):
+        path = env_file if env_file is not None else _resolve_env_file()
+        if path.exists():
+            _check_file_safety(path)
+            value = dotenv_values(path).get(name)
+    return value.strip() if value and value.strip() else None

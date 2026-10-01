@@ -461,7 +461,7 @@ Run the same query against:
 
 ## Session Management
 
-**Test Count:** 522 passing
+**Test Count:** 542 passing
 **Features Complete:** 1-14 (11 awaiting golden-set ratings)
 **Version:** v2.0.0
 **Status:** QRG page rating, AI access, citation probes, site audit, tabbed UI with shareable report

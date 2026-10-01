@@ -116,12 +116,39 @@ report = create_diagnostic_report(result)
 print(report.coverage.score_rounded, report.coverage.interpretation)
 ```
 
+## Deploying (hosted, with login)
+
+A hosted SimCheck spends your API credits, so it runs behind a login gate with usage limits.
+
+**Access codes.** One per person, so usage is attributable and revocable:
+
+```bash
+python -c "from simcheck.access import generate_code; print(generate_code())"
+```
+
+**Settings** (environment variables, or Streamlit Cloud *Secrets*, whose root-level entries become environment variables):
+
+```toml
+TYPESAFE_API_KEY = "..."
+OPENROUTER_API_KEY = "..."
+SIMCHECK_REQUIRE_LOGIN = "true"                       # fail closed: no valid codes = nobody gets in
+SIMCHECK_ACCESS_CODES = "marc:CODE1,alex:CODE2"       # name:code, comma-separated, codes ≥16 chars
+SIMCHECK_DAILY_BUDGET_USD = "5"                       # global estimated spend cap per UTC day
+```
+
+**Limits when hosted** (per person per day): 40 analyses, 20 explanations, 10 probe runs, 3 site audits capped at 25 pages. A global daily budget stops all paid actions once reached. Counters reset on restart, so also set credit limits on the OpenRouter and TypeSafe keys themselves.
+
+**Streamlit Community Cloud:** New app → this repo and branch → `app.py`, Python 3.12 → paste the settings above into Secrets → Deploy. `requirements.txt` installs CPU-only PyTorch on Linux to stay within the host's limits.
+
+Revoke someone by removing their entry from `SIMCHECK_ACCESS_CODES` and rebooting the app.
+
 ## Security
 
 - API keys are read only by `simcheck/config.py`, from a chmod-600 file outside the repo, and are never printed (only the last 4 characters).
 - A gitleaks pre-commit hook blocks secrets: `git config core.hooksPath .githooks` (needs `brew install gitleaks`).
 - Fetched page content is untrusted: it is HTML-escaped everywhere it renders, and passed to Claude as delimited data with instructions never to follow it.
 - Client data stays local: `eval/data/`, `runs/`, and `exports/` are gitignored.
+- Hosted mode: per-person access codes (constant-time compare, throttled attempts, fails closed), per-person daily caps, and a global daily spend cap.
 
 ## Testing
 
@@ -129,7 +156,7 @@ print(report.coverage.score_rounded, report.coverage.interpretation)
 pytest simcheck/tests/ -v
 ```
 
-522 tests. No test calls the network: classifiers, OpenRouter, and HTTP are faked.
+542 tests. No test calls the network: classifiers, OpenRouter, and HTTP are faked.
 
 ## License
 

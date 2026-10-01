@@ -34,6 +34,7 @@ from simcheck.core.recommendations import (
 from simcheck.core.geo import generate_geo_next_steps, infer_intent, GeoIntent, GeoPriority
 from simcheck.core.readiness import compute_readiness_score
 from simcheck.quality.snapshot import SnapshotError, fetch_markdown
+from ui.access_views import require_login, sign_out_button
 from ui.quality_views import (
     init_quality_state,
     inject_css,
@@ -432,6 +433,7 @@ def render_header():
             unsafe_allow_html=True,
         )
     with right:
+        sign_out_button()
         with st.popover("How it works", use_container_width=True):
             st.markdown(
                 """
@@ -1283,6 +1285,9 @@ def main():
 
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
     inject_css()
+
+    # Hosted deployments require an access code; local runs skip this
+    require_login()
 
     init_session_state()
     init_quality_state()
