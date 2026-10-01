@@ -7,3 +7,5 @@ requests>=2.31.0
 markitdown>=0.1.4
 python-dotenv>=1.0.0
 beautifulsoup4>=4.12
+langchain-typesafe==0.0.1a3
+openai>=3.22.1,<4

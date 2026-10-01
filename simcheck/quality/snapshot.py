@@ -43,6 +43,27 @@ class SnapshotError(Exception):
     """Raised when a URL is invalid, unsafe, unreachable, or unparseable."""
 
 
+class FetchBlockedError(SnapshotError):
+    """
+    The site refused the fetcher (bot protection / WAF).
+
+    Reported as a finding (AI crawlers may hit the same wall). The caller can
+    still rate the page from pasted HTML via parse_snapshot().
+    """
+
+    def __init__(self, url: str, status_code: int):
+        self.url = url
+        self.status_code = status_code
+        super().__init__(
+            f"HTTP {status_code}: {url} blocks automated fetchers. "
+            "Paste the page HTML (view-source) to rate it anyway."
+        )
+
+
+# Status codes that typically mean "bot protection said no", not "page missing"
+BLOCKED_STATUS_CODES = (401, 403, 429)
+
+
 # =============================================================================
 # Data structures
 # =============================================================================
@@ -229,6 +250,9 @@ def fetch_page(url: str, timeout: int = FETCH_TIMEOUT_SECONDS) -> FetchResult:
         finally:
             response.close()
 
+        if response.status_code in BLOCKED_STATUS_CODES or (
+                response.status_code == 503 and "cf-mitigated" in response.headers):
+            raise FetchBlockedError(current, response.status_code)
         if response.status_code >= 400:
             raise SnapshotError(f"HTTP {response.status_code} for {current}")
 

@@ -8,6 +8,7 @@ import pytest
 from simcheck.quality import snapshot as snap
 from simcheck.quality.snapshot import (
     MAX_RESPONSE_BYTES,
+    FetchBlockedError,
     SnapshotError,
     fetch_page,
     parse_snapshot,
@@ -221,3 +222,16 @@ class TestFetchPage:
         monkeypatch.setattr(snap.requests, "get", boom)
         with pytest.raises(SnapshotError, match="Fetch failed"):
             fetch_page("https://example.com/")
+
+    @pytest.mark.parametrize("status,headers", [(403, {}), (401, {}), (429, {}), (503, {"cf-mitigated": "challenge"})])
+    def test_bot_protection_raises_blocked(self, monkeypatch, public_dns, status, headers):
+        monkeypatch.setattr(snap.requests, "get", lambda *a, **k: _FakeResponse(status, headers))
+        with pytest.raises(FetchBlockedError, match="Paste the page HTML") as exc:
+            fetch_page("https://example.com/")
+        assert exc.value.status_code == status
+
+    def test_plain_503_is_not_blocked(self, monkeypatch, public_dns):
+        monkeypatch.setattr(snap.requests, "get", lambda *a, **k: _FakeResponse(503))
+        with pytest.raises(SnapshotError) as exc:
+            fetch_page("https://example.com/")
+        assert not isinstance(exc.value, FetchBlockedError)
