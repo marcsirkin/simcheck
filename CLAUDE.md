@@ -2,37 +2,36 @@
 
 ## Project Overview
 **Name:** SimCheck
-**Description:** Local query-to-document cosine similarity analyzer for AI visibility (GEO/AI SEO) optimization
-**Tech Stack:** Python 3.10+, sentence-transformers (BAAI/bge-base-en-v1.5), numpy, streamlit
-**Version:** 1.1.0
+**Description:** Page/site quality rating (Google QRG) + LLM visibility + query-to-document semantic coverage, for GEO/AI SEO
+**Tech Stack:** Python 3.10+, sentence-transformers (BAAI/bge-base-en-v1.5), numpy, streamlit, beautifulsoup4, langchain-typesafe (Jev), openai SDK → OpenRouter
+**Version:** 2.0.0
 
 ## Codebase Structure
 ```
 simcheck/
-├── core/                   # Backend modules
-│   ├── models.py           # Data structures (Chunk, ChunkLevel, ChunkSimilarity, ComparisonResult, SIMILARITY_THRESHOLDS)
-│   ├── chunker.py          # Document chunking (flat + hierarchical: MARKDOWN, HTML, AUTO)
-│   ├── embeddings.py       # Embedding generation (sentence-transformers, BAAI/bge-base-en-v1.5)
-│   ├── similarity.py       # Cosine similarity calculations
-│   ├── engine.py           # Main comparison orchestration (compare_query_to_document)
-│   ├── diagnostics.py      # Chunk-level diagnostics, CCS scoring, section analysis
-│   ├── recommendations.py  # CCS improvement recommendations (prioritized, chunk-specific)
-│   ├── geo.py              # GEO/AI-SEO action plan (intent detection, content signals, next steps)
-│   └── readiness.py        # SimScore: composite LLM readiness metric (Feature 8)
-├── tests/                  # Unit tests (272 tests)
-│   ├── test_models.py
-│   ├── test_chunker.py
-│   ├── test_embeddings.py
-│   ├── test_similarity.py
-│   ├── test_engine.py
-│   ├── test_diagnostics.py
-│   ├── test_hierarchical_chunker.py
-│   ├── test_recommendations.py
-│   └── test_geo.py
-└── __init__.py             # Public API exports
-
-app.py                      # Streamlit UI (two tabs: Action Plan + Diagnostics)
-requirements.txt
+├── config.py               # API keys from ~/.config/simcheck/.env (chmod 600, outside repo); never print values
+├── core/                   # v1, offline: Content Match
+│   ├── models.py, chunker.py, embeddings.py, similarity.py, engine.py
+│   ├── diagnostics.py      # CCS, section analysis
+│   ├── recommendations.py, geo.py (intent, content signals, action plan)
+│   └── readiness.py        # SimScore
+├── quality/                # v2, network: page/site quality + LLM visibility
+│   ├── snapshot.py         # validated fetch (SSRF-safe redirects, 5MB cap, WAF detection) + extraction
+│   ├── ai_access.py        # robots.txt per AI bot (search vs training), noindex, CSR, schema, llms.txt
+│   ├── rubric.py           # QRG rubric as data (RUBRIC_VERSION); 9-point slider
+│   ├── classifier.py       # Jev / Claude / Hybrid / Fake backends; make_classifier (default "jev")
+│   ├── llm_client.py       # OpenRouter client (Claude JSON-schema, citation probes); MODELS constants
+│   ├── page_quality.py     # rate_page: QRG gates + band + PQ score
+│   ├── probe.py            # Perplexity citation probes
+│   ├── report.py           # deterministic headline/summary/fixes for the Report tab
+│   ├── site.py             # sitemap discovery, stratified sampling, audit
+│   ├── export.py           # shareable HTML report, JSON, CSV
+│   └── evaluation.py       # golden-set metrics + offline hybrid simulation
+├── tests/                  # 522 tests, no network (fakes + fixtures/)
+ui/quality_views.py         # Streamlit views for Report / Page Quality / LLM Visibility / Site Audit
+app.py                      # Streamlit router: header, URL bar, 5 tabs; Content Match = v1 flow
+eval/run_eval.py            # golden-set agreement (eval/data/ gitignored: client sites)
+docs/reference/             # Google QRG PDF/text (gitignored, re-fetch steps in README)
 ```
 
 ## Features
@@ -67,7 +66,13 @@ requirements.txt
 - scrollIntoView called from a component iframe on a parent-page element
   silently no-ops in Chrome — scroll section[data-testid="stMain"] directly
 - Newlines inside an HTML string passed to st.markdown terminate the HTML
-  block mid-element — collapse whitespace first
+  block mid-element — collapse whitespace first (ui/quality_views._html)
+- Escape every page-derived string before st.markdown (titles/URLs/hosts come
+  from third-party sites); use esc() in ui/quality_views.py
+- Widget keys may be written earlier in the same run, before the widget
+  renders: the URL bar's Analyze fills Content Match's query/document this way
+- requests: never touch response.apparent_encoding after a streamed read
+  ("content already consumed"); use snapshot.decode_body
 
 ### Feature 4: Concept Coverage Score (CCS)
 - Weighted 0-100 score: Strong=1.0, Moderate=0.6, Weak=0.2, Off-topic=0.0
@@ -97,7 +102,25 @@ requirements.txt
 - `compute_readiness_score(report, signals, intent)` -> `ReadinessScore`
 - Composite 0-100: coverage (CCS, 50%) + structure (20%) + evidence (15%) + answerability (15%)
 - Bands: 80+ AI-ready, 60-79 Nearly ready, 40-59 Needs work, <40 Not ready
-- Reportable headline metric; component breakdown shown in UI banner
+
+### Feature 9: Page snapshot + AI access (`snapshot.py`, `ai_access.py`)
+- Deterministic, no keys. Bot-protected sites raise FetchBlockedError (paste-HTML fallback)
+- Main content: semantic container must hold ≥40% of body words; chrome-in-header fallback
+
+### Feature 10: Page Quality rating (`rubric.py`, `classifier.py`, `page_quality.py`)
+- 15 QRG questions, one parallel Jev call; QRG gates override the model
+- <50 server-rendered words → Unrated (crawlability, not quality)
+
+### Feature 11: Golden-set evaluation (`evaluation.py`, `eval/run_eval.py`)
+- Don't show tool ratings for golden URLs before they are hand-rated (anchoring)
+
+### Feature 12: v2 UI (`ui/quality_views.py`, `app.py`)
+- One URL, tabs: Report | Page Quality | LLM Visibility | Content Match | Site Audit
+- Look: Geist, white, thin rules, no gradients/shadows/emoji/AI tropes
+
+### Feature 13: Citation probes (`probe.py`) — Perplexity Sonar via OpenRouter, click-only, cost shown first
+
+### Feature 14: Site audit (`site.py`) — sitemap → stratified sample → Jev ratings → sortable grid + CSV
 
 ## Code Standards
 
@@ -119,24 +142,18 @@ requirements.txt
 - Validate inputs at module boundaries
 
 ### Testing
-- Unit tests for all core logic (292 tests)
+- Unit tests for all core logic (522 tests); no test may call the network
 - Test edge cases explicitly
 - Use pytest conventions
 
 ## Development Commands
 ```bash
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run tests
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt
 pytest simcheck/tests/ -v
-
-# Run Streamlit app
 streamlit run app.py
+python eval/run_eval.py          # golden-set agreement (uses cached answers)
+git config core.hooksPath .githooks   # gitleaks pre-commit (brew install gitleaks)
 ```
 
 ## Key Architecture Decisions
@@ -145,9 +162,14 @@ streamlit run app.py
 - **~150 token chunks** (flat mode): granular enough for drift detection, within model limits
 - **~4 chars/token heuristic**: avoids tokenizer dependency, accurate enough for chunking
 - **In-memory only**: no persistence, no vector DB, session resets on reload
-- **Thin UI layer**: all semantic logic in `simcheck.core`, Streamlit just renders
+- **Thin UI layer**: all logic in `simcheck.core` / `simcheck.quality`, Streamlit just renders
+- **Jev for typed rubric answers, Claude only on demand**: Jev ~0.3s/page; Claude changes bands on most pages but isn't yet shown to be more right (eval pending)
+- **Jev direct, everything else via OpenRouter**: OpenRouter only offers jev-router (a router, not the classifier)
+- **Deterministic report copy**: headline/summary/fixes are templates over measured signals, not LLM text
+- **Sitemaps parsed by regex over <loc>**: untrusted XML, avoids entity expansion
 
 ## Current Status
-**Features Complete:** 1, 2, 3, 4, 5, 6, 7, 8
-**Test Count:** 292 passing
-**Status:** v1.3.0 — SimScore readiness metric, clickable drift map, DKIM example pre-load, clear-content button, intent labels clarified
+**Features Complete:** 1-14
+**Test Count:** 522 passing
+**Status:** v2.0.0 on branch `feature/quality-visibility` — QRG page rating (Jev), AI access, citation probes, site audit, tabbed UI with shareable report
+**Next:** rate golden set → run eval → decide Jev vs hybrid default; citation-gap analysis (compare cited competitor pages) + earned/owned source-type question
