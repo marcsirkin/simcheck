@@ -216,10 +216,18 @@ h3 { margin-top: 0.5rem; margin-bottom: 0.5rem; }
 }
 
 /* ── Header subtitle ────────────────────────────────────────────── */
-.header-subtitle {
-    color: #6B778C;
-    font-weight: 400;
-    font-size: 1rem;
+.app-title {
+    font-family: 'Geist', system-ui, sans-serif;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: #15181D;
+}
+.app-intro {
+    font-family: 'Geist', system-ui, sans-serif;
+    font-size: 15px;
+    color: #5B6270;
+    margin: 2px 0 8px;
 }
 </style>
 """
@@ -303,7 +311,6 @@ def init_session_state():
         "last_analyzed_query": "",
         "last_analyzed_document": "",
         "last_analyzed_strategy": "flat",
-        "has_seen_intro": False,
         "geo_intent": "auto",
     }
     first_run = "document_text" not in st.session_state
@@ -416,23 +423,28 @@ def run_comparison(query: str, document: str, strategy: str) -> bool:
 # =============================================================================
 
 def render_header():
-    """Render the app header: title plus a short how-to."""
-    st.markdown(
-        '# SimCheck <span class="header-subtitle">page quality and AI visibility</span>',
-        unsafe_allow_html=True,
-    )
-
-    expanded = not bool(st.session_state.get("has_seen_intro"))
-    with st.expander("How to use", expanded=expanded):
+    """Title, one-line intro, and a collapsed how-to off to the right."""
+    left, right = st.columns([6, 1], vertical_alignment="bottom")
+    with left:
         st.markdown(
-            """
-- **Enter a page URL** (and optionally the query a searcher would type), then press **Analyze**.
-- **Report** is the summary: Google quality rating, AI visibility, and what to fix first.
-- **Page Quality**, **LLM Visibility**, and **Content Match** hold the details. **Site Audit** rates a sample of a whole site.
-- Paste a draft into **Content Match** to re-score edits before publishing.
-            """.strip()
+            '<div class="app-title">SimCheck</div>'
+            '<p class="app-intro">How Google would rate a page, and whether AI search cites it.</p>',
+            unsafe_allow_html=True,
         )
-    st.session_state.has_seen_intro = True
+    with right:
+        with st.popover("How it works", use_container_width=True):
+            st.markdown(
+                """
+**Analyze a page.** Paste a URL. Add the question a searcher would ask for a fuller read.
+
+**Report** is the summary and what to fix first. The other tabs hold the evidence:
+
+- **Page Quality**: Google's rater guidelines, E-E-A-T
+- **LLM Visibility**: AI crawler access; click to test real AI answers (about $0.02)
+- **Content Match**: how closely the text covers your query. Paste a draft here to re-score edits.
+- **Site Audit**: rates a sample of pages from a site's sitemap
+                """.strip()
+            )
 
 
 def render_input_section():
