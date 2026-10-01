@@ -436,7 +436,7 @@ See [ROADMAP.md](ROADMAP.md) for the prioritized backlog (v1 carry-overs include
 
 ## Session Management
 
-**Test Count:** 542 passing
+**Test Count:** 549 passing
 **Features Complete:** 1-14 (11 awaiting golden-set ratings)
 **Version:** v2.0.0
 **Status:** QRG page rating, AI access, citation probes, site audit, tabbed UI with shareable report
