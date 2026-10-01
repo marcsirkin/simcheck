@@ -5,6 +5,8 @@ rater, and to tune `ESCALATION_CONFIDENCE` and the hard-gate thresholds.
 
 Ratings live in `eval/data/qrg_golden.csv` (gitignored: client sites).
 
+**Step-by-step: see [PLAYBOOK.md](PLAYBOOK.md).**
+
 ## How to rate
 
 Rate each page the way a Google Quality Rater would (QRG Sept 2025 edition,
