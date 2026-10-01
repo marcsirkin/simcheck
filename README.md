@@ -156,7 +156,11 @@ Revoke someone by removing their entry from `SIMCHECK_ACCESS_CODES` and rebootin
 pytest simcheck/tests/ -v
 ```
 
-542 tests. No test calls the network: classifiers, OpenRouter, and HTTP are faked.
+549 tests. No test calls the network: classifiers, OpenRouter, and HTTP are faked.
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

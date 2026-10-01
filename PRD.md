@@ -373,10 +373,7 @@ Quality Rater Guidelines and measures AI visibility directly.
 - [x] Newest sitemaps first; default sample = pages updated in the last 12 months (large sites list archives oldest-first)
 
 ### Next
-- [ ] Citation gap: rate the pages AI cited instead, report what they have that this page lacks
-- [ ] Source-type question (earned / owned / social / UGC / reference): AI search favors earned media
-- [ ] Claude as a probe engine (OpenRouter web plugin returned no citations in the spike)
-- [ ] Google Sheet/Doc export
+See [ROADMAP.md](ROADMAP.md).
 
 ---
 
@@ -431,32 +428,9 @@ Run the same query against:
 
 ---
 
-## Future Enhancements (v2+)
+## Future Enhancements
 
-### v1.1 (Current) ✅
-- [x] Modern UI overhaul (Atlassian-inspired card layout, colored CCS banners)
-- [x] Local URL-to-Markdown conversion (markitdown, no external API)
-- [x] Single-column action plan with bordered step cards
-- [x] Content signal pills in tinted strip
-- [x] Hero input card with collapsed labels
-
-### v1.2 (Soon)
-- [ ] Configurable chunk size via UI
-- [ ] Histogram of similarity distribution
-- [ ] Export results to JSON/CSV
-- [ ] Compare two drafts side-by-side
-
-### v2 (Later)
-- [ ] Multiple queries at once
-- [ ] Compare two documents against same query
-- [ ] Session history (save/load analyses)
-- [ ] Batch URL processing
-
-### v3+ (Maybe)
-- [ ] Cloud embedding option (OpenAI, Cohere)
-- [ ] API endpoint for scripting
-- [ ] Custom threshold configuration in UI
-- [ ] Automatic content rewrite suggestions
+See [ROADMAP.md](ROADMAP.md) for the prioritized backlog (v1 carry-overs included).
 
 ---
 
