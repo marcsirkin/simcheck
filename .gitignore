@@ -62,3 +62,6 @@ exports/
 # Google QRG source (copyrighted, 9MB) — re-download: see docs/reference/README.md
 docs/reference/qrg.pdf
 docs/reference/qrg.txt
+
+# Golden-set ratings (client sites, hand ratings) stay local
+eval/data/
