@@ -415,3 +415,10 @@ class TestMakeClassifier:
     def test_explainer_needs_openrouter(self):
         assert make_explainer(ApiKeys(typesafe="ts-test-000000000")) is None
         assert isinstance(make_explainer(ApiKeys(openrouter="sk-or-test-0000")), ClaudeClassifier)
+
+
+def test_weakest_note_only_below_medium(article):
+    medium = rate_page(article, FakeClassifier({"experience": 1.98}))
+    assert not any("Weakest" in r for r in medium.reasons)
+    low = rate_page(article, FakeClassifier({"experience": 1.2}))
+    assert any("Weakest E-E-A-T dimension: experience (Low)" in r for r in low.reasons)

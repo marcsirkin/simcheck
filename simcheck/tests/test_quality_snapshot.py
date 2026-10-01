@@ -306,3 +306,21 @@ def test_cloudflare_bot_script_on_normal_page_is_not_challenge():
     html = ('<html><head><title>Sirkin</title></head><body><p>Real page</p>'
             '<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></body></html>')
     assert not snap.is_challenge_page(html)
+
+
+class TestReputationSameSite:
+    def test_external_about_links_ignored(self):
+        html = ('<body><main><p>See <a href="https://www.heart.org/health-topics/the-facts-about-high-blood-pressure">'
+                'the facts about high blood pressure</a>.</p></main>'
+                '<footer><a href="/about/contact-us">Contact us</a></footer></body>')
+        rep = parse_snapshot("https://www.healthline.com/x", html).reputation
+        assert "heart.org" not in (rep.about or "")
+        assert rep.contact == "https://www.healthline.com/about/contact-us"
+
+    def test_www_variant_counts_as_same_site(self):
+        rep = parse_snapshot("https://example.com/x", '<a href="https://www.example.com/about">About</a>').reputation
+        assert rep.about == "https://www.example.com/about"
+
+    def test_about_word_in_article_path_is_not_about_page(self):
+        rep = parse_snapshot("https://example.com/x", '<a href="/blog/all-about-dkim">All about DKIM</a>').reputation
+        assert rep.about is None

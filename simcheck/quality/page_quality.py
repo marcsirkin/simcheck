@@ -143,10 +143,12 @@ def _reasons(answers: dict, snapshot: PageSnapshot, eeat: dict) -> list:
         reasons.append(f"Clearly YMYL{topic_text}: held to the highest E-E-A-T standard.")
     weakest = min(eeat, key=eeat.get)
     strongest = max(eeat, key=eeat.get)
-    reasons.append(f"Trust rated {PQ_LEVELS[int(round(eeat['trust']))]}.")
-    if eeat[weakest] < 2.0:
-        reasons.append(f"Weakest E-E-A-T dimension: {weakest} "
-                       f"({PQ_LEVELS[int(round(eeat[weakest]))]}).")
+    # Label by rounded level, and flag "weakest" only when that label is
+    # below Medium, so the note never reads "weakest: experience (Medium)".
+    level_name = lambda v: PQ_LEVELS[int(v + 0.5)]
+    reasons.append(f"Trust rated {level_name(eeat['trust'])}.")
+    if int(eeat[weakest] + 0.5) < 2:
+        reasons.append(f"Weakest E-E-A-T dimension: {weakest} ({level_name(eeat[weakest])}).")
     elif eeat[strongest] >= 3.0 and strongest != "trust":
         reasons.append(f"Strongest E-E-A-T dimension: {strongest}.")
     if not snapshot.author_name:

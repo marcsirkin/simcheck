@@ -438,7 +438,7 @@ def _same_site(host: str, base_host: str) -> bool:
 
 # Link text / href patterns for QRG "who is responsible" pages
 _REPUTATION_PATTERNS = {
-    "about": re.compile(r"\babout(\s+us)?\b|/about", re.IGNORECASE),
+    "about": re.compile(r"^about(\s+us)?\b|\babout us\b|/about(-us)?(/|$)", re.IGNORECASE),
     "contact": re.compile(r"\bcontact(\s+us)?\b|/contact", re.IGNORECASE),
     "privacy": re.compile(r"\bprivacy\b", re.IGNORECASE),
     "terms": re.compile(r"\bterms\b|terms-of|/tos\b", re.IGNORECASE),
@@ -459,11 +459,17 @@ _AD_IFRAME_RE = re.compile(r"doubleclick|googlesyndication|adservice|taboola|out
 def _reputation_links(full_soup: BeautifulSoup, base_url: str) -> ReputationLinks:
     """Find About/Contact/Privacy/Terms/Editorial links anywhere on the page (incl. nav/footer)."""
     found: dict = {}
+    base_host = urlparse(base_url).netloc
     for a in full_soup.find_all("a", href=True):
-        haystack = f"{a.get_text(' ', strip=True)} {a['href']}"
+        absolute = urljoin(base_url, a["href"])
+        # Only the site's own pages say who is responsible for it; an
+        # outbound "facts-about-..." link must not count as an About page.
+        if not _same_site(urlparse(absolute).netloc, base_host):
+            continue
+        haystack = f"{a.get_text(' ', strip=True)} {urlparse(absolute).path}"
         for kind, pattern in _REPUTATION_PATTERNS.items():
             if kind not in found and pattern.search(haystack):
-                found[kind] = urljoin(base_url, a["href"])
+                found[kind] = absolute
     return ReputationLinks(**found)
 
 
