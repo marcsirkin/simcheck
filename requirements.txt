@@ -6,3 +6,4 @@ streamlit>=1.28.0
 requests>=2.31.0
 markitdown>=0.1.4
 python-dotenv>=1.0.0
+beautifulsoup4>=4.12

@@ -19,7 +19,6 @@ import html
 
 import streamlit as st
 import streamlit.components.v1 as components
-from markitdown import MarkItDown
 
 # Import backend modules (Features 1 + 2 + 5 + 6)
 from simcheck.core.engine import compare_query_to_document, ComparisonError
@@ -34,6 +33,7 @@ from simcheck.core.recommendations import (
 )
 from simcheck.core.geo import generate_geo_next_steps, infer_intent, GeoIntent, GeoPriority
 from simcheck.core.readiness import compute_readiness_score
+from simcheck.quality.snapshot import SnapshotError, fetch_markdown
 
 
 # =============================================================================
@@ -319,7 +319,7 @@ def clear_results():
 
 def fetch_url_as_markdown(url: str) -> tuple[bool, str]:
     """
-    Fetch a URL and convert it to Markdown using markitdown.
+    Fetch a URL (validated, size-capped) and convert it to Markdown.
 
     Args:
         url: The webpage URL to convert
@@ -328,15 +328,9 @@ def fetch_url_as_markdown(url: str) -> tuple[bool, str]:
         Tuple of (success: bool, content_or_error: str)
     """
     try:
-        md = MarkItDown()
-        result = md.convert(url)
-        content = result.text_content
-        if content and len(content.strip()) > 0:
-            return True, content
-        else:
-            return False, "Conversion returned empty content"
-    except Exception as e:
-        return False, f"Error: {str(e)}"
+        return True, fetch_markdown(url)
+    except SnapshotError as e:
+        return False, f"Error: {e}"
 
 
 # =============================================================================
