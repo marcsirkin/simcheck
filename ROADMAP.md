@@ -65,7 +65,7 @@ probes, site audit, tabbed UI, hosted login gate.
 
 - Google Search Quality Rater Guidelines, Sept 2025 edition (`docs/reference/`, gitignored).
 - Aggarwal et al., *GEO: Generative Engine Optimization* (Princeton, KDD 2024): citations, statistics, and quotations raise AI visibility.
-- Chen et al., *Generative Engine Optimization: How to Dominate AI Search*, [arXiv 2509.08919](https://arxiv.org/abs/2509.08919): AI search strongly favors earned media over brand-owned content (→ #5).
+- *Generative Engine Optimization: How to Dominate AI Search*, [arXiv 2509.08919](https://arxiv.org/abs/2509.08919): AI search strongly favors earned media over brand-owned content (→ #5).
 - Alisa Scharf (Seer Interactive), [Stop Chasing AI Rankings Before You Fix How LLMs See Your Brand](https://www.seerinteractive.com/insights/stop-chasing-ai-rankings-before-you-fix-how-llms-see-your-brand), May 2026: Brand Canon, accuracy %, 4-stage query ladder (→ #7a, #7b).
 - iPullRank, [AI Search](https://ipullrank.com/ai-search): readiness model; query fan-out, crawler access, authority signals (→ #15). Their AI Search Manual is the deeper source.
 - LangChain, [Building a harness with Jev](https://www.langchain.com/blog/building-a-harness-with-jev): typed classifier first, LLM only where needed.
