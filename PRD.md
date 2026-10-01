@@ -370,6 +370,7 @@ Quality Rater Guidelines and measures AI visibility directly.
 
 ### Feature 14: Site Audit ✅
 - [x] Sitemap discovery (robots.txt, indexes, homepage fallback), stratified sample, sortable grid, CSV
+- [x] Newest sitemaps first; default sample = pages updated in the last 12 months (large sites list archives oldest-first)
 
 ### Next
 - [ ] Citation gap: rate the pages AI cited instead, report what they have that this page lacks

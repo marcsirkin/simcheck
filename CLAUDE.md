@@ -120,7 +120,7 @@ docs/reference/             # Google QRG PDF/text (gitignored, re-fetch steps in
 
 ### Feature 13: Citation probes (`probe.py`) — Perplexity Sonar via OpenRouter, click-only, cost shown first
 
-### Feature 14: Site audit (`site.py`) — sitemap → stratified sample → Jev ratings → sortable grid + CSV
+### Feature 14: Site audit (`site.py`) — sitemaps read newest-first by <lastmod> → recent-pages pool (12 mo default) → stratified sample → Jev ratings → sortable grid + CSV
 
 ## Code Standards
 

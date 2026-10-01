@@ -12,7 +12,7 @@ Give SimCheck a URL. It rates the page against Google's Search Quality Rater Gui
 | **Page Quality** | How would a Google Quality Rater score this page? | 15 rubric questions from the QRG (Sept 2025 edition) answered by Jev, TypeSafe's typed classifier. Band on Google's 9-point scale plus a 0-100 score, E-E-A-T breakdown, YMYL, Needs Met. "Explain this rating" asks Claude for quoted evidence. |
 | **LLM Visibility** | Can AI reach it? Does AI cite it? | robots.txt rules for 9 AI crawlers (search vs training), noindex/nosnippet, JavaScript rendering, schema, llms.txt. Click-to-run citation probes ask Perplexity real questions and show who got cited instead. |
 | **Content Match** | Does the text cover the query? | The original SimCheck: local embeddings, Concept Coverage Score, SimScore, drift map, GEO action plan. Paste a draft here to re-score edits. |
-| **Site Audit** | How does the whole site rate? | Samples pages from the sitemap across site sections, rates each one, sortable grid, CSV export. |
+| **Site Audit** | How does the whole site rate? | Reads the sitemap newest-first, samples pages updated in the last 12 months (or the whole site) across site sections, rates each one, sortable grid, CSV export. |
 
 ## Setup
 
