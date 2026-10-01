@@ -16,6 +16,7 @@ fetch_content.py so ratings here and in that skill see the same signals.
 
 from __future__ import annotations
 
+import copy
 import io
 import ipaddress
 import json
@@ -35,8 +36,28 @@ FETCH_TIMEOUT_SECONDS = 15
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 MAX_REDIRECTS = 5
 
-# Elements stripped before main-content extraction (navigation chrome, code)
-_CHROME_TAGS = ["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]
+# A semantic container must hold at least this share of body words to be
+# treated as the main content; otherwise the whole (de-chromed) body is used.
+MAIN_CONTENT_MIN_SHARE = 0.4
+
+# Body markers of WAF / bot-challenge pages served with HTTP 200
+_CHALLENGE_RE = re.compile(
+    r"_Incapsula_Resource|Request unsuccessful\. Incapsula|cf-browser-verification|"
+    # Not "challenge-platform": Cloudflare injects that script into normal pages.
+    r"Just a moment\.\.\.|Attention Required! \| Cloudflare|"
+    r"Pardon Our Interruption|captcha-delivery\.com|px-captcha|"
+    r"<title>\s*Access Denied\s*</title>",
+    re.IGNORECASE)
+CHALLENGE_MAX_BYTES = 20_000
+
+# Non-visible elements, always stripped
+_INVISIBLE_TAGS = ["script", "style", "noscript", "template"]
+# Navigation chrome, stripped unless that would leave the page empty
+_CHROME_TAGS = ["nav", "footer", "header", "aside", "form"]
+# If stripping chrome leaves fewer words than this, the site has put real
+# content inside chrome elements (e.g. everything in <header>, or ASP.NET's
+# page-wide <form>), so fall back to the visible body.
+MIN_DECHROMED_WORDS = 50
 
 
 class SnapshotError(Exception):
@@ -143,7 +164,7 @@ class PageSnapshot:
     internal_link_count: int
     external_link_count: int
     external_hosts: tuple
-    script_count: int
+    script_count: int  # executable <script> tags, inline and external (not JSON-LD)
     reputation: ReputationLinks
     ads: AdSignals
 
@@ -206,6 +227,16 @@ def _read_capped(response: requests.Response) -> bytes:
     return b"".join(chunks)
 
 
+def is_challenge_page(html: str) -> bool:
+    """
+    True if HTML looks like a WAF/bot challenge served with a 2xx status.
+
+    Only small documents are checked: challenge pages are tiny, and a real
+    article that merely mentions "captcha" must not be misclassified.
+    """
+    return len(html) <= CHALLENGE_MAX_BYTES and bool(_CHALLENGE_RE.search(html))
+
+
 def fetch_page(url: str, timeout: int = FETCH_TIMEOUT_SECONDS) -> FetchResult:
     """
     Fetch a URL, validating every redirect hop.
@@ -257,11 +288,14 @@ def fetch_page(url: str, timeout: int = FETCH_TIMEOUT_SECONDS) -> FetchResult:
             raise SnapshotError(f"HTTP {response.status_code} for {current}")
 
         encoding = response.encoding or response.apparent_encoding or "utf-8"
+        html = body.decode(encoding, errors="replace")
+        if is_challenge_page(html):
+            raise FetchBlockedError(current, response.status_code)
         return FetchResult(
             url=original,
             final_url=current,
             status_code=response.status_code,
-            html=body.decode(encoding, errors="replace"),
+            html=html,
             headers=dict(response.headers),
         )
 
@@ -314,22 +348,56 @@ def _find_in_schema(blocks: list, key: str):
     return None
 
 
+_JS_SCRIPT_TYPES = ("", "text/javascript", "application/javascript", "module")
+
+
+def _is_executable_script(tag) -> bool:
+    """True for JavaScript <script> tags; False for data blocks like JSON-LD."""
+    return (tag.get("type") or "").strip().lower() in _JS_SCRIPT_TYPES
+
+
+def _word_count(el) -> int:
+    """Words of visible text in an element."""
+    return len(el.get_text(" ", strip=True).split())
+
+
+def _largest(elements) -> Optional[object]:
+    """Element with the most text, or None."""
+    return max(elements, key=_word_count, default=None)
+
+
 def _main_content(soup: BeautifulSoup):
-    """Best-effort main content element. MUTATES soup (removes chrome)."""
+    """
+    Best-effort main content element. MUTATES soup (removes chrome).
+
+    Semantic containers win only if they hold a real share of the page's
+    text. Homepages often use <article> or *content* classes for small cards
+    (a metric tile, a testimonial); taking the first match would rate a
+    20-word card instead of the page.
+    """
+    for tag in soup(_INVISIBLE_TAGS):
+        tag.decompose()
+    visible_body = copy.copy(soup.find("body") or soup)
     for tag in soup(_CHROME_TAGS):
         tag.decompose()
+    body = soup.find("body") or soup
+    total = _word_count(body)
+    if total < MIN_DECHROMED_WORDS and _word_count(visible_body) > total:
+        return visible_body
+    if total == 0:
+        return body
+
+    content_class = lambda c: c and any(k in c.lower() for k in ["content", "article", "post", "entry"])
     candidates = [
         soup.find("main"),
-        soup.find("article"),
         soup.find(attrs={"role": "main"}),
-        soup.find("div", class_=lambda c: c and any(
-            k in c.lower() for k in ["content", "article", "post", "entry"])),
-        soup.find("body"),
+        _largest(soup.find_all("article")),
+        _largest(soup.find_all("div", class_=content_class)),
     ]
     for c in candidates:
-        if c is not None:
+        if c is not None and _word_count(c) >= MAIN_CONTENT_MIN_SHARE * total:
             return c
-    return soup
+    return body
 
 
 def _count_statistics(text: str) -> int:
@@ -585,7 +653,7 @@ def parse_snapshot(
         internal_link_count=internal,
         external_link_count=external,
         external_hosts=tuple(sorted(external_hosts)),
-        script_count=len(full_soup.find_all("script", src=True)),
+        script_count=sum(1 for t in full_soup.find_all("script") if _is_executable_script(t)),
         reputation=_reputation_links(full_soup, final_url),
         ads=_ad_signals(full_soup),
     )

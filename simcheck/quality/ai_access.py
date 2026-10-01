@@ -48,10 +48,11 @@ AI_BOTS = {
 SEARCH_CRITICAL_BOTS = ("OAI-SearchBot", "ChatGPT-User", "Claude-SearchBot",
                         "Claude-User", "PerplexityBot")
 
-# Below this many main-content words, a script-heavy page is likely rendered
-# client-side, so crawlers that don't execute JS see an empty page.
+# Below this many main-content words, a page that ships any script is likely
+# rendered client-side, so crawlers that don't execute JS see an empty page.
+# (Script count alone is a poor signal: Framer/React shells can ship 1-2.)
 CSR_WORD_THRESHOLD = 100
-CSR_SCRIPT_THRESHOLD = 5
+CSR_SCRIPT_THRESHOLD = 1
 
 SITE_FILE_TIMEOUT_SECONDS = 8
 

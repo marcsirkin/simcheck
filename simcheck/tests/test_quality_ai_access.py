@@ -107,3 +107,16 @@ class TestReport:
     def test_missing_schema_is_medium(self):
         report = build_ai_access_report(_snapshot("affiliate_page.html"), _files())
         assert any(i.severity == "medium" and "No JSON-LD" in i.message for i in report.issues)
+
+
+class TestClientRenderedDetection:
+    def test_shell_with_single_inline_script_flagged(self):
+        html = ('<html><head><title>AI: Voice or Victim</title>'
+                '<script type="module">import("/app.js")</script></head>'
+                '<body><div id="root"></div></body></html>')
+        report = build_ai_access_report(parse_snapshot("https://v.example/", html), _files())
+        assert report.client_rendered_suspect
+
+    def test_rich_page_not_flagged(self):
+        report = build_ai_access_report(_snapshot("good_article.html"), _files())
+        assert not report.client_rendered_suspect

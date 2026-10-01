@@ -235,3 +235,74 @@ class TestFetchPage:
         with pytest.raises(SnapshotError) as exc:
             fetch_page("https://example.com/")
         assert not isinstance(exc.value, FetchBlockedError)
+
+
+class TestMainContentSelection:
+    def test_small_cards_do_not_win_over_body(self):
+        s = parse_snapshot("https://acme.example/", _fixture("homepage_cards.html"))
+        assert "Run a smarter plant floor" in s.main_text
+        assert "Why plant managers choose Acme" in s.main_text
+        assert s.word_count > 60
+
+    def test_dominant_article_is_selected(self, good):
+        # The DKIM article holds nearly all body text, so it is chosen and
+        # header/footer links stay out.
+        assert "Privacy Policy" not in good.main_text
+
+    def test_largest_article_chosen_among_many(self):
+        html = ("<body><article><p>tiny</p></article>"
+                "<article><p>" + "word " * 200 + "</p></article></body>")
+        s = parse_snapshot("https://x.example/", html)
+        assert s.word_count == 200
+
+
+class TestChallengeDetection:
+    @pytest.mark.parametrize("html", [
+        '<html><head><script src="/_Incapsula_Resource?SWJ=1"></script></head>'
+        '<body><iframe>Request unsuccessful. Incapsula incident ID: 1</iframe></body></html>',
+        "<html><head><title>Just a moment...</title></head><body>cf-browser-verification</body></html>",
+        "<html><head><title>Access Denied</title></head><body>You don't have permission</body></html>",
+    ])
+    def test_detects_challenges(self, html):
+        assert snap.is_challenge_page(html)
+
+    def test_large_page_mentioning_captcha_is_not_challenge(self):
+        html = "<html><body><p>" + "How captcha works. Just a moment... " * 1000 + "</p></body></html>"
+        assert not snap.is_challenge_page(html)
+
+    def test_normal_page_is_not_challenge(self):
+        assert not snap.is_challenge_page(_fixture("good_article.html"))
+
+    def test_fetch_raises_blocked_on_200_challenge(self, monkeypatch, public_dns):
+        body = b"<html><body>Request unsuccessful. Incapsula incident ID: 1</body></html>"
+        monkeypatch.setattr(snap.requests, "get", lambda *a, **k: _FakeResponse(200, body=body))
+        with pytest.raises(FetchBlockedError) as exc:
+            fetch_page("https://example.com/")
+        assert exc.value.status_code == 200
+
+
+def test_script_count_excludes_json_ld(good):
+    assert good.script_count == 0  # fixture has only ld+json blocks
+
+
+class TestChromeFallback:
+    def test_content_inside_header_is_kept(self):
+        html = ("<html><body><header><h1>The Jacksonville Symphony</h1><p>"
+                + "Concerts season tickets orchestra music " * 15 + "</p></header></body></html>")
+        s = parse_snapshot("https://tbj.example/", html)
+        assert "Jacksonville Symphony" in s.main_text
+        assert s.word_count > 50
+
+    def test_aspnet_page_wide_form_is_kept(self):
+        html = '<body><form id="aspnetForm"><h1>Welcome</h1><p>' + "real content " * 40 + "</p></form></body>"
+        s = parse_snapshot("https://asp.example/", html)
+        assert s.word_count > 50
+
+    def test_nav_still_stripped_when_content_exists(self, good):
+        assert "About us" not in good.main_text
+
+
+def test_cloudflare_bot_script_on_normal_page_is_not_challenge():
+    html = ('<html><head><title>Sirkin</title></head><body><p>Real page</p>'
+            '<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script></body></html>')
+    assert not snap.is_challenge_page(html)
