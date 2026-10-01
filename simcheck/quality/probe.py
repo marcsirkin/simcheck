@@ -24,6 +24,7 @@ from simcheck.quality.llm_client import MODELS, LLMError, OpenRouterClient
 
 
 MAX_PROBE_QUERIES = 10
+SHORT_TOPIC_WORDS = 4
 PROBE_ENGINES = {
     "perplexity": {"model": MODELS["probe_perplexity"], "label": "Perplexity Sonar", "est_cost": 0.006},
 }
@@ -117,7 +118,9 @@ def default_queries(query: Optional[str], title: str = "") -> list:
     if not base:
         return []
     candidates = [base]
-    if not base.endswith("?"):
+    # Only wrap short topic phrases; "What is high blood pressure symptoms
+    # and treatment?" reads badly, so longer queries are used as typed.
+    if not base.endswith("?") and len(base.split()) <= SHORT_TOPIC_WORDS:
         candidates += [f"What is {base}?", f"What should I know about {base}?"]
     seen, out = set(), []
     for c in candidates:

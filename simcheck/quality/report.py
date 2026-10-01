@@ -310,3 +310,25 @@ def build_report(
         visibility_line=visibility_line,
         simscore_line=simscore_line,
     )
+
+
+def site_headline(summary: dict) -> str:
+    """
+    Finding sentence for the Site Audit tab.
+
+    Args:
+        summary: SiteAudit.summary()
+
+    Returns:
+        One or two sentences
+    """
+    n = summary.get("rated", 0)
+    if n == 0:
+        return "No sampled page could be rated."
+    high, low = summary["high_or_better"], summary["low_or_worse"]
+    if low:
+        return f"{low} of {n} sampled pages rate Low or worse. Start there."
+    if high == n:
+        return ("Every sampled page rates High or better. Quality is uniform, "
+                "so it isn't what separates these pages in AI answers.")
+    return f"{high} of {n} sampled pages rate High or better. The rest sit at Medium."

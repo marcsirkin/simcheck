@@ -49,6 +49,8 @@ class TestProbeHelpers:
         assert default_queries("high blood pressure") == [
             "high blood pressure", "What is high blood pressure?", "What should I know about high blood pressure?"]
         assert default_queries("how do I set up DKIM?") == ["how do I set up DKIM?"]
+        assert default_queries("high blood pressure symptoms and treatment") == [
+            "high blood pressure symptoms and treatment"]
         assert default_queries(None, "DKIM Explained | Example Mail") == [
             "DKIM Explained", "What is DKIM Explained?", "What should I know about DKIM Explained?"]
         assert default_queries("", "") == []
@@ -259,3 +261,13 @@ def test_rank_fixes_dedupes_and_orders():
     fixes = [Fix("B", "", 25, "content", 4), Fix("A", "", 10, "content", 4), Fix("A", "", 5, "content", 4),
              Fix("Z", "", None, "access", 0)]
     assert [f.title for f in rank_fixes(fixes, 5)] == ["Z", "A", "B"]
+
+
+class TestSiteHeadline:
+    def test_cases(self):
+        from simcheck.quality.report import site_headline
+        assert site_headline({"rated": 0}) == "No sampled page could be rated."
+        assert site_headline({"rated": 10, "high_or_better": 4, "low_or_worse": 2}).startswith("2 of 10 sampled pages rate Low")
+        assert site_headline({"rated": 5, "high_or_better": 5, "low_or_worse": 0}).startswith("Every sampled page")
+        assert site_headline({"rated": 5, "high_or_better": 3, "low_or_worse": 0}) == \
+            "3 of 5 sampled pages rate High or better. The rest sit at Medium."

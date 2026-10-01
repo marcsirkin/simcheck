@@ -34,6 +34,15 @@ from simcheck.core.recommendations import (
 from simcheck.core.geo import generate_geo_next_steps, infer_intent, GeoIntent, GeoPriority
 from simcheck.core.readiness import compute_readiness_score
 from simcheck.quality.snapshot import SnapshotError, fetch_markdown
+from ui.quality_views import (
+    init_quality_state,
+    inject_css,
+    render_page_quality_tab,
+    render_report_tab,
+    render_site_audit_tab,
+    render_url_bar,
+    render_visibility_tab,
+)
 
 
 # =============================================================================
@@ -407,9 +416,9 @@ def run_comparison(query: str, document: str, strategy: str) -> bool:
 # =============================================================================
 
 def render_header():
-    """Render the app header — minimal title with inline subtitle."""
+    """Render the app header: title plus a short how-to."""
     st.markdown(
-        '# SimCheck <span class="header-subtitle">— semantic coverage analyzer</span>',
+        '# SimCheck <span class="header-subtitle">page quality and AI visibility</span>',
         unsafe_allow_html=True,
     )
 
@@ -417,9 +426,10 @@ def render_header():
     with st.expander("How to use", expanded=expanded):
         st.markdown(
             """
-- **Enter a target topic** (entity + intent), paste or fetch your content, then hit **Analyze**.
-- Read the **Action Plan** for prioritized next steps to improve AI summarization / citation readiness.
-- Expand **Detailed Diagnostics** to see per-chunk scores and section analysis.
+- **Enter a page URL** (and optionally the query a searcher would type), then press **Analyze**.
+- **Report** is the summary: Google quality rating, AI visibility, and what to fix first.
+- **Page Quality**, **LLM Visibility**, and **Content Match** hold the details. **Site Audit** rates a sample of a whole site.
+- Paste a draft into **Content Match** to re-score edits before publishing.
             """.strip()
         )
     st.session_state.has_seen_intro = True
@@ -1237,57 +1247,60 @@ def render_diagnostics_expander():
 # Main App
 # =============================================================================
 
-def main():
-    """Main application entry point."""
-    st.set_page_config(
-        page_title="SimCheck",
-        page_icon="🔍",
-        layout="wide",
-    )
-
-    # Inject custom CSS
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
-    # Initialize state
-    init_session_state()
-
-    # Warm the embedding model so the first analysis doesn't stall
-    with st.spinner("Preparing embedding model..."):
-        warm_embedding_model()
-
-    # Header
-    render_header()
-
-    # Input section
+def render_content_match():
+    """The v1 flow: topic + document in, CCS/SimScore, drift map, action plan."""
     query, document, strategy = render_input_section()
-
-    # Action button
     render_action_buttons(query, document, strategy)
 
-    # --- Single-page results flow (no tabs) ---
     if st.session_state.is_indexed:
         st.markdown('<div style="margin-top: 32px;"></div>', unsafe_allow_html=True)
 
         # GEO report feeds both the score banner (SimScore) and the action plan
         geo = compute_geo_report()
-
-        # 1. SimScore + CCS banner card
         render_score_banner(geo)
-
-        # 2. Drift map (per-chunk alignment, document order)
         render_drift_map()
-
-        # 3. Action Plan (GEO steps + merged recommendations)
         render_action_plan(geo)
 
         st.markdown('<div style="margin-top: 16px;"></div>', unsafe_allow_html=True)
-
-        # 4. Detailed Diagnostics (collapsed)
         render_diagnostics_expander()
 
-    # Footer
+
+def main():
+    """Main application entry point."""
+    st.set_page_config(page_title="SimCheck", layout="wide")
+
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    inject_css()
+
+    init_session_state()
+    init_quality_state()
+
+    # Warm the embedding model so the first analysis doesn't stall
+    with st.spinner("Preparing embedding model..."):
+        warm_embedding_model()
+
+    render_header()
+
+    # One URL drives every tab; Analyze also feeds Content Match
+    render_url_bar(run_comparison)
+
+    report_tab, quality_tab, visibility_tab, match_tab, site_tab = st.tabs(
+        ["Report", "Page Quality", "LLM Visibility", "Content Match", "Site Audit"]
+    )
+    with report_tab:
+        render_report_tab()
+    with quality_tab:
+        render_page_quality_tab()
+    with visibility_tab:
+        render_visibility_tab()
+    with match_tab:
+        render_content_match()
+    with site_tab:
+        render_site_audit_tab()
+
     st.markdown(
-        '<div class="footer-caption">SimCheck v1.3.0 · Local-only semantic analysis · No data leaves your machine</div>',
+        '<div class="footer-caption">SimCheck v2.0 · Content Match runs locally · '
+        'Page Quality and LLM Visibility call TypeSafe and OpenRouter</div>',
         unsafe_allow_html=True,
     )
 
