@@ -1,7 +1,16 @@
+# Linux hosts get the CPU-only PyTorch build: the default Linux wheel bundles
+# CUDA (several GB). --find-links lists torch wheels only, so no other package
+# can be pulled from the PyTorch index (no dependency confusion).
+--find-links https://download.pytorch.org/whl/cpu/torch/
 sentence-transformers>=2.2.0
 numpy>=1.24.0
-torch>=2.0.0
+torch>=2.0.0 ; sys_platform != "linux"
+torch==2.14.1+cpu ; sys_platform == "linux"
 pytest>=7.0.0
 streamlit>=1.28.0
 requests>=2.31.0
 markitdown>=0.1.4
+python-dotenv>=1.0.0
+beautifulsoup4>=4.12
+langchain-typesafe==0.0.1a3
+openai>=3.22.1,<4

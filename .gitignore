@@ -42,3 +42,26 @@ Thumbs.db
 
 # Project specific
 *.log
+
+# Secrets — real keys live in ~/.config/simcheck/.env (outside the repo).
+# These patterns are a backstop in case a key file lands here by mistake.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*credentials*.json
+*service-account*.json
+.streamlit/secrets.toml
+
+# Run outputs (probe results, site audits may contain client data)
+runs/
+exports/
+
+# Google QRG source (copyrighted, 9MB) — re-download: see docs/reference/README.md
+docs/reference/qrg.pdf
+docs/reference/qrg.txt
+
+# Golden-set ratings (client sites, hand ratings) stay local
+eval/data/

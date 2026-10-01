@@ -37,10 +37,16 @@ This tool is for analysis and learning, not client-facing demos.
 To keep this tight, the application will **not**:
 - Be deployed publicly
 - Support authentication or multi-user
-- Crawl websites automatically (paste-only or single URL fetch for v1)
+- Crawl whole websites (v2 samples up to 100 pages from a sitemap; no full crawl)
 - Optimize for performance at scale
-- Generate recommendations or rewritten content automatically
-- Use a vector database (not needed for v1)
+- Generate rewritten content automatically
+- Use a vector database
+- Persist analyses (exports only; in-memory otherwise)
+
+**Revised in v2:** "fully offline" no longer holds for the whole app. Content
+Match stays local; Page Quality, LLM Visibility, and Site Audit call TypeSafe
+(Jev) and OpenRouter by design. Paid calls beyond the Jev rating run only on
+explicit click.
 
 ---
 
@@ -331,6 +337,49 @@ Streamlit UI (Action Plan tab + Diagnostics tab)
 
 ---
 
+## v2 Workstream: Page Quality + LLM Visibility (2026-10)
+
+**Problem:** CCS says whether text covers a topic, not whether Google or an AI
+engine would trust or cite the page. v2 rates pages against Google's Search
+Quality Rater Guidelines and measures AI visibility directly.
+
+### Feature 9: Page Snapshot + AI Access ✅
+- [x] Validated fetch: http(s) only, private-IP block on every redirect hop, 5 MB cap
+- [x] Bot protection (403/429, WAF challenges served as 200) → FetchBlockedError + paste-HTML fallback
+- [x] Extraction: metadata, schema, author, dates, main content, citations, stats, quotes, reputation links, ads/affiliates
+- [x] AI access: robots.txt per AI crawler (search vs training), noindex/nosnippet, client-rendering, schema, llms.txt
+
+### Feature 10: Page Quality Rating ✅
+- [x] QRG rubric as data (15 questions, `RUBRIC_VERSION`), answered by Jev in one parallel call
+- [x] QRG overrides: deceptive → Lowest; scaled low-effort, ad-dominated, anonymous YMYL → capped at Low
+- [x] Headline: 9-point band + 0-100 PQ score; E-E-A-T, YMYL, purpose, Needs Met (with query)
+- [x] Thin server-rendered pages → Unrated (crawlability finding)
+- [x] Claude via OpenRouter: on-demand evidence ("Explain this rating"); hybrid/claude modes available
+
+### Feature 11: Golden-Set Evaluation ✅ (awaiting ratings)
+- [x] Hand-rating sheet (gitignored), cached answers per backend, offline threshold sweep
+- [ ] Rate ~20 pages incl. ≥3 Low-or-worse and ≥5 article pages; decide Jev vs hybrid default
+
+### Feature 12: v2 UI ✅
+- [x] One URL drives five tabs: Report, Page Quality, LLM Visibility, Content Match (v1), Site Audit
+- [x] Report: generated finding headline, three figures, summary, fix-first list
+- [x] Shareable client report (HTML, no probabilities/model names) + JSON export
+
+### Feature 13: Citation Probes ✅
+- [x] Perplexity Sonar via OpenRouter; cited?/position/competitors per question; click-only, cost shown
+
+### Feature 14: Site Audit ✅
+- [x] Sitemap discovery (robots.txt, indexes, homepage fallback), stratified sample, sortable grid, CSV
+- [x] Newest sitemaps first; default sample = pages updated in the last 12 months (large sites list archives oldest-first)
+
+### Next
+- [ ] Citation gap: rate the pages AI cited instead, report what they have that this page lacks
+- [ ] Source-type question (earned / owned / social / UGC / reference): AI search favors earned media
+- [ ] Claude as a probe engine (OpenRouter web plugin returned no citations in the spike)
+- [ ] Google Sheet/Doc export
+
+---
+
 ## Trade-offs & Decisions
 
 ### Decision Log
@@ -347,6 +396,12 @@ Streamlit UI (Action Plan tab + Diagnostics tab)
 | 2026-02-XX | Add CCS scoring | Need single number for content quality | Raw similarity only |
 | 2026-02-XX | Add hierarchical chunking | Need section-level analysis for structured docs | Flat only |
 | 2026-02-XX | Add GEO action plan | Need editor-friendly, intent-aware next steps | CCS recs only |
+| 2026-10-01 | Jev (TypeSafe) for QRG rubric | Typed answers + probabilities, ~0.3s/page, cheap enough for site audits | LLM-as-judge for every question |
+| 2026-10-01 | Jev only by default; Claude on demand | Claude changed bands on 9/13 golden pages but isn't yet shown more accurate | Hybrid escalation by default |
+| 2026-10-01 | OpenRouter for Claude + probes, TypeSafe direct | OpenRouter lists only jev-router, not the classifier | All via OpenRouter |
+| 2026-10-01 | Keys in ~/.config/simcheck/.env, chmod 600 | Credentials never live in the repo | .env in project |
+| 2026-10-01 | Deterministic report copy | Every sentence traces to a measured signal | LLM-written summary |
+| 2026-10-01 | Stay on Streamlit for v2 | Speed; accept layout limits | FastAPI + custom front end |
 
 ---
 
@@ -407,10 +462,10 @@ Run the same query against:
 
 ## Session Management
 
-**Test Count:** 292 passing
-**Features Complete:** 1, 2, 3, 4, 5, 6, 7, 8
-**Version:** v1.3.0
-**Status:** SimScore readiness metric + clickable drift map + DKIM example pre-load + intent clarity
+**Test Count:** 542 passing
+**Features Complete:** 1-14 (11 awaiting golden-set ratings)
+**Version:** v2.0.0
+**Status:** QRG page rating, AI access, citation probes, site audit, tabbed UI with shareable report
 
 **Notes:**
 - Restart Claude Code session at 40-50% context

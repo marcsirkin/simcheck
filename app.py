@@ -19,7 +19,6 @@ import html
 
 import streamlit as st
 import streamlit.components.v1 as components
-from markitdown import MarkItDown
 
 # Import backend modules (Features 1 + 2 + 5 + 6)
 from simcheck.core.engine import compare_query_to_document, ComparisonError
@@ -34,6 +33,17 @@ from simcheck.core.recommendations import (
 )
 from simcheck.core.geo import generate_geo_next_steps, infer_intent, GeoIntent, GeoPriority
 from simcheck.core.readiness import compute_readiness_score
+from simcheck.quality.snapshot import SnapshotError, fetch_markdown
+from ui.access_views import require_login, sign_out_button
+from ui.quality_views import (
+    init_quality_state,
+    inject_css,
+    render_page_quality_tab,
+    render_report_tab,
+    render_site_audit_tab,
+    render_url_bar,
+    render_visibility_tab,
+)
 
 
 # =============================================================================
@@ -207,10 +217,18 @@ h3 { margin-top: 0.5rem; margin-bottom: 0.5rem; }
 }
 
 /* ── Header subtitle ────────────────────────────────────────────── */
-.header-subtitle {
-    color: #6B778C;
-    font-weight: 400;
-    font-size: 1rem;
+.app-title {
+    font-family: 'Geist', system-ui, sans-serif;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: #15181D;
+}
+.app-intro {
+    font-family: 'Geist', system-ui, sans-serif;
+    font-size: 15px;
+    color: #5B6270;
+    margin: 2px 0 8px;
 }
 </style>
 """
@@ -294,7 +312,6 @@ def init_session_state():
         "last_analyzed_query": "",
         "last_analyzed_document": "",
         "last_analyzed_strategy": "flat",
-        "has_seen_intro": False,
         "geo_intent": "auto",
     }
     first_run = "document_text" not in st.session_state
@@ -319,7 +336,7 @@ def clear_results():
 
 def fetch_url_as_markdown(url: str) -> tuple[bool, str]:
     """
-    Fetch a URL and convert it to Markdown using markitdown.
+    Fetch a URL (validated, size-capped) and convert it to Markdown.
 
     Args:
         url: The webpage URL to convert
@@ -328,15 +345,9 @@ def fetch_url_as_markdown(url: str) -> tuple[bool, str]:
         Tuple of (success: bool, content_or_error: str)
     """
     try:
-        md = MarkItDown()
-        result = md.convert(url)
-        content = result.text_content
-        if content and len(content.strip()) > 0:
-            return True, content
-        else:
-            return False, "Conversion returned empty content"
-    except Exception as e:
-        return False, f"Error: {str(e)}"
+        return True, fetch_markdown(url)
+    except SnapshotError as e:
+        return False, f"Error: {e}"
 
 
 # =============================================================================
@@ -413,22 +424,29 @@ def run_comparison(query: str, document: str, strategy: str) -> bool:
 # =============================================================================
 
 def render_header():
-    """Render the app header — minimal title with inline subtitle."""
-    st.markdown(
-        '# SimCheck <span class="header-subtitle">— semantic coverage analyzer</span>',
-        unsafe_allow_html=True,
-    )
-
-    expanded = not bool(st.session_state.get("has_seen_intro"))
-    with st.expander("How to use", expanded=expanded):
+    """Title, one-line intro, and a collapsed how-to off to the right."""
+    left, right = st.columns([6, 1], vertical_alignment="bottom")
+    with left:
         st.markdown(
-            """
-- **Enter a target topic** (entity + intent), paste or fetch your content, then hit **Analyze**.
-- Read the **Action Plan** for prioritized next steps to improve AI summarization / citation readiness.
-- Expand **Detailed Diagnostics** to see per-chunk scores and section analysis.
-            """.strip()
+            '<div class="app-title">SimCheck</div>'
+            '<p class="app-intro">How Google would rate a page, and whether AI search cites it.</p>',
+            unsafe_allow_html=True,
         )
-    st.session_state.has_seen_intro = True
+    with right:
+        sign_out_button()
+        with st.popover("How it works", use_container_width=True):
+            st.markdown(
+                """
+**Analyze a page.** Paste a URL. Add the question a searcher would ask for a fuller read.
+
+**Report** is the summary and what to fix first. The other tabs hold the evidence:
+
+- **Page Quality**: Google's rater guidelines, E-E-A-T
+- **LLM Visibility**: AI crawler access; click to test real AI answers (about $0.02)
+- **Content Match**: how closely the text covers your query. Paste a draft here to re-score edits.
+- **Site Audit**: rates a sample of pages from a site's sitemap
+                """.strip()
+            )
 
 
 def render_input_section():
@@ -1243,57 +1261,63 @@ def render_diagnostics_expander():
 # Main App
 # =============================================================================
 
-def main():
-    """Main application entry point."""
-    st.set_page_config(
-        page_title="SimCheck",
-        page_icon="🔍",
-        layout="wide",
-    )
-
-    # Inject custom CSS
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
-    # Initialize state
-    init_session_state()
-
-    # Warm the embedding model so the first analysis doesn't stall
-    with st.spinner("Preparing embedding model..."):
-        warm_embedding_model()
-
-    # Header
-    render_header()
-
-    # Input section
+def render_content_match():
+    """The v1 flow: topic + document in, CCS/SimScore, drift map, action plan."""
     query, document, strategy = render_input_section()
-
-    # Action button
     render_action_buttons(query, document, strategy)
 
-    # --- Single-page results flow (no tabs) ---
     if st.session_state.is_indexed:
         st.markdown('<div style="margin-top: 32px;"></div>', unsafe_allow_html=True)
 
         # GEO report feeds both the score banner (SimScore) and the action plan
         geo = compute_geo_report()
-
-        # 1. SimScore + CCS banner card
         render_score_banner(geo)
-
-        # 2. Drift map (per-chunk alignment, document order)
         render_drift_map()
-
-        # 3. Action Plan (GEO steps + merged recommendations)
         render_action_plan(geo)
 
         st.markdown('<div style="margin-top: 16px;"></div>', unsafe_allow_html=True)
-
-        # 4. Detailed Diagnostics (collapsed)
         render_diagnostics_expander()
 
-    # Footer
+
+def main():
+    """Main application entry point."""
+    st.set_page_config(page_title="SimCheck", layout="wide")
+
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    inject_css()
+
+    # Hosted deployments require an access code; local runs skip this
+    require_login()
+
+    init_session_state()
+    init_quality_state()
+
+    # Warm the embedding model so the first analysis doesn't stall
+    with st.spinner("Preparing embedding model..."):
+        warm_embedding_model()
+
+    render_header()
+
+    # One URL drives every tab; Analyze also feeds Content Match
+    render_url_bar(run_comparison)
+
+    report_tab, quality_tab, visibility_tab, match_tab, site_tab = st.tabs(
+        ["Report", "Page Quality", "LLM Visibility", "Content Match", "Site Audit"]
+    )
+    with report_tab:
+        render_report_tab()
+    with quality_tab:
+        render_page_quality_tab()
+    with visibility_tab:
+        render_visibility_tab()
+    with match_tab:
+        render_content_match()
+    with site_tab:
+        render_site_audit_tab()
+
     st.markdown(
-        '<div class="footer-caption">SimCheck v1.3.0 · Local-only semantic analysis · No data leaves your machine</div>',
+        '<div class="footer-caption">SimCheck v2.0 · Content Match runs locally · '
+        'Page Quality and LLM Visibility call TypeSafe and OpenRouter</div>',
         unsafe_allow_html=True,
     )
 

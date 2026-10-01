@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>What Is DKIM? Email Authentication Explained</title>
+  <meta name="description" content="DKIM signs outgoing email so receivers can verify it was not altered.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://example.com/guides/dkim">
+  <meta property="article:modified_time" content="2026-08-01T10:00:00Z">
+  <script type="application/ld+json">
+  {"@context": "https://schema.org", "@type": "Article",
+   "headline": "What Is DKIM?",
+   "datePublished": "2026-03-15",
+   "author": {"@type": "Person", "name": "Jane Rivera", "url": "/authors/jane-rivera"},
+   "publisher": {"@type": "Organization", "name": "Example Mail"}}
+  </script>
+  <script type="application/ld+json">{ not valid json </script>
+</head>
+<body>
+  <header><nav><a href="/">Home</a> <a href="/about-us">About us</a> <a href="/contact">Contact</a></nav></header>
+  <main>
+    <article>
+      <h1>What Is DKIM?</h1>
+      <p>DKIM (DomainKeys Identified Mail) is an email authentication method that lets a receiving server verify a message was sent by the domain it claims and was not altered in transit.</p>
+      <h2>How DKIM works</h2>
+      <p>The sending server signs headers with a private key. According to the <a href="https://datatracker.ietf.org/doc/html/rfc6376">RFC 6376 specification</a>, receivers fetch the public key from DNS. Adoption reached 87% of the top 10,000 domains in 2025.</p>
+      <blockquote>DKIM alone does not stop spoofing; pair it with SPF and DMARC.</blockquote>
+      <h3>Key rotation</h3>
+      <p>Rotate keys every 6 months. See <a href="https://www.m3aawg.org/dkim-key-rotation">M3AAWG guidance</a> and our <a href="/guides/dmarc">DMARC guide</a>.</p>
+    </article>
+  </main>
+  <footer>
+    <a href="/privacy">Privacy Policy</a> <a href="/terms">Terms of Service</a>
+    <a href="/editorial-standards">Editorial standards</a>
+  </footer>
+</body>
+</html>
