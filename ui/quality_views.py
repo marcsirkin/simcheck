@@ -527,10 +527,13 @@ def render_visibility_tab() -> None:
 def render_site_audit_tab() -> None:
     """Sitemap sample → rated grid (sortable via st.dataframe) + CSV export."""
     s = _state()
-    c1, c2, c3 = st.columns([6, 2.5, 1.3], vertical_alignment="bottom")
+    c1, c4, c2, c3 = st.columns([4.5, 2.2, 2.5, 1.3], vertical_alignment="bottom")
     with c1:
         default_site = s.analysis["snapshot"].host if s.analysis and s.analysis.get("snapshot") else ""
         site = st.text_input("Site", value=default_site, placeholder="example.com", key="site_input")
+    with c4:
+        scope = st.selectbox("Pages", ["Updated in last 12 months", "Whole site"], key="site_scope",
+                             help="Large sites list old archives first. Recent pages reflect the site today.")
     with c2:
         cap = max_site_sample(MAX_SAMPLE)
         n = st.slider("Pages to sample", 5, cap, min(DEFAULT_SAMPLE, cap), step=5)
@@ -548,7 +551,8 @@ def render_site_audit_tab() -> None:
             bar = st.progress(0.0, text="Finding pages...")
             try:
                 s.site_audit = audit_site(site, classifier, n,
-                                          progress=lambda d, t: bar.progress(d / t, text=f"Rated {d} of {t} pages"))
+                                          progress=lambda d, t: bar.progress(d / t, text=f"Rated {d} of {t} pages"),
+                                          recent_days=None if scope == "Whole site" else 365)
             except SiteAuditError as e:
                 st.error(str(e))
             bar.empty()
@@ -561,8 +565,8 @@ def render_site_audit_tab() -> None:
 
     summ = audit.summary()
     source = audit.source.split("/")[-1] if audit.source.startswith("http") else audit.source
-    _html(f'<div class="sc"><p class="sc-meta">{summ["sampled"]} pages sampled from {audit.discovered:,} in '
-          f'{esc(source)} · rated by Jev · no Claude cost</p>'
+    _html(f'<div class="sc"><p class="sc-meta">{summ["sampled"]} pages sampled from {esc(audit.pool)} '
+          f'({audit.discovered:,} found, starting at {esc(source)}) · rated by Jev · no Claude cost</p>'
           f'<h1 class="sc-h1-sm">{esc(site_headline(summ))}</h1></div>')
     if summ.get("rated"):
         r = summ["rated"]

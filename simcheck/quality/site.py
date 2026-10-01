@@ -6,6 +6,12 @@ Discovery reads robots.txt Sitemap: lines, then /sitemap.xml and
 sitemap it falls back to links on the homepage. Only same-site URLs that
 robots.txt allows for SimCheck are kept.
 
+Sitemaps are read newest-first by their <lastmod>: large sites list
+hundreds of archive sitemaps oldest-first (martech.org: 318), and reading
+them in order audited 2020-era posts. By default the sample is drawn from
+pages updated in the last 12 months, falling back to the newest dated
+pages, then to everything when the sitemap carries no dates.
+
 Sampling is stratified by first path segment (/blog, /health, ...) so one
 large section doesn't crowd out the rest.
 
@@ -21,6 +27,7 @@ import re
 from collections import OrderedDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import date, timedelta
 from statistics import mean
 from typing import Callable, Optional
 from urllib.parse import urljoin, urlparse
@@ -48,6 +55,13 @@ ROBOTS_AGENT = "SimCheck"
 
 _LOC_RE = re.compile(r"<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)\s*(?:\]\]>)?\s*</loc>", re.IGNORECASE)
 _SITEMAP_BLOCK_RE = re.compile(r"<sitemap\b.*?</sitemap>", re.IGNORECASE | re.DOTALL)
+_URL_BLOCK_RE = re.compile(r"<url\b.*?</url>", re.IGNORECASE | re.DOTALL)
+_LASTMOD_RE = re.compile(r"<lastmod>\s*([^<\s]+)\s*</lastmod>", re.IGNORECASE)
+
+DEFAULT_RECENT_DAYS = 365
+# When too few pages fall in the recent window, sample from this many of
+# the newest dated pages (per requested page) instead.
+NEWEST_POOL_FACTOR = 4
 _SITEMAP_LINE_RE = re.compile(r"^\s*sitemap\s*:\s*(\S+)", re.IGNORECASE | re.MULTILINE)
 # Non-page resources that sometimes appear in sitemaps or homepage links
 _SKIP_EXT_RE = re.compile(r"\.(pdf|jpe?g|png|gif|webp|svg|mp4|mp3|zip|xml|css|js)(\?|$)", re.IGNORECASE)
@@ -83,6 +97,7 @@ class SiteAudit:
     source: str            # where URLs came from (sitemap URL or "homepage links")
     discovered: int
     pages: tuple
+    pool: str = ""         # which pages the sample was drawn from, for display
 
     @property
     def rated_pages(self) -> list:
@@ -111,19 +126,60 @@ class SiteAudit:
 # Pure helpers
 # =============================================================================
 
+def _entries(blocks: list) -> list:
+    """(loc, lastmod date or None) for each <sitemap>/<url> block with a <loc>."""
+    out = []
+    for block in blocks:
+        loc = _LOC_RE.search(block)
+        if loc:
+            lastmod = _LASTMOD_RE.search(block)
+            out.append((loc.group(1), lastmod.group(1)[:10] if lastmod else None))
+    return out
+
+
 def parse_sitemap(xml: str) -> tuple:
     """
     Split a sitemap document into child sitemaps and page URLs.
 
     Returns:
-        (child sitemap URLs, page URLs)
+        (child sitemaps, pages), each a list of (url, lastmod "YYYY-MM-DD" or None)
     """
-    children = []
-    for block in _SITEMAP_BLOCK_RE.findall(xml):
-        children += _LOC_RE.findall(block)
+    children = _entries(_SITEMAP_BLOCK_RE.findall(xml))
     stripped = _SITEMAP_BLOCK_RE.sub("", xml)
-    pages = _LOC_RE.findall(stripped)
+    pages = _entries(_URL_BLOCK_RE.findall(stripped))
+    if not pages:
+        # Malformed sitemaps sometimes list bare <loc> elements
+        pages = [(loc, None) for loc in _LOC_RE.findall(stripped)]
     return children, pages
+
+
+def choose_pool(urls: list, lastmods: dict, sample_size: int,
+                recent_days: Optional[int] = DEFAULT_RECENT_DAYS, today: Optional[date] = None) -> tuple:
+    """
+    Pick which discovered URLs to sample from.
+
+    Args:
+        urls: Discovered URLs
+        lastmods: {url: "YYYY-MM-DD"} from the sitemaps
+        sample_size: Pages wanted
+        recent_days: Recency window in days; None = whole site
+        today: Override for tests
+
+    Returns:
+        (pool of URLs, plain-language description of the pool)
+    """
+    if not recent_days:
+        return list(urls), "the whole site"
+    dated = [(u, lastmods[u]) for u in urls if lastmods.get(u)]
+    if not dated:
+        return list(urls), "the whole site (the sitemap has no dates)"
+    cutoff = ((today or date.today()) - timedelta(days=recent_days)).isoformat()
+    window = "the last 12 months" if recent_days == 365 else f"the last {recent_days} days"
+    recent = [u for u, d in dated if d >= cutoff]
+    if len(recent) >= sample_size:
+        return recent, f"pages updated in {window}"
+    newest = sorted(dated, key=lambda ud: ud[1], reverse=True)[:max(sample_size * NEWEST_POOL_FACTOR, sample_size)]
+    return [u for u, _ in newest], f"the newest pages (few updated in {window})"
 
 
 def sitemaps_from_robots(robots_txt: str) -> list:
@@ -208,7 +264,7 @@ def discover_urls(site: str, fetcher: Callable = fetch_page) -> tuple:
         fetcher: fetch_page-compatible callable (tests inject a fake)
 
     Returns:
-        (origin, source description, filtered URLs)
+        (origin, source description, filtered URLs, {url: lastmod})
 
     Raises:
         SiteAuditError: If nothing can be discovered
@@ -225,10 +281,13 @@ def discover_urls(site: str, fetcher: Callable = fetch_page) -> tuple:
         robots = RobotFileParser()
         robots.parse(robots_txt.splitlines())
 
-    queue = sitemaps_from_robots(robots_txt or "") or [f"{origin}/sitemap.xml", f"{origin}/sitemap_index.xml"]
-    seen, urls, sources = set(), [], []
+    # Queue of (lastmod, sitemap url). Roots have no date and go first; after
+    # that the newest child sitemap is always read next.
+    roots = sitemaps_from_robots(robots_txt or "") or [f"{origin}/sitemap.xml", f"{origin}/sitemap_index.xml"]
+    queue = [(None, sm) for sm in roots]
+    seen, urls, sources, lastmods = set(), [], [], {}
     while queue and len(seen) < MAX_SITEMAPS and len(urls) < MAX_DISCOVERED_URLS:
-        sm = queue.pop(0)
+        _, sm = queue.pop(0)
         if sm in seen:
             continue
         seen.add(sm)
@@ -236,24 +295,30 @@ def discover_urls(site: str, fetcher: Callable = fetch_page) -> tuple:
         if not xml or "<loc" not in xml.lower():
             continue
         children, pages = parse_sitemap(xml)
-        queue += [c for c in children if c not in seen]
-        kept = filter_urls(pages, origin, robots)
+        queue += [(lm, c) for c, lm in children if c not in seen]
+        queue = [q for q in queue if q[0] is None] + sorted(
+            (q for q in queue if q[0] is not None), key=lambda q: q[0], reverse=True)
+        kept = filter_urls([loc for loc, _ in pages], origin, robots)
         if kept:
             # Report a sitemap that actually contributed pages, not e.g. a
             # foreign-language subdomain sitemap whose URLs were all filtered.
             sources.append(sm)
             urls += kept
+            page_dates = dict(pages)
+            for u in kept:
+                if page_dates.get(u):
+                    lastmods[u] = page_dates[u]
 
     urls = filter_urls(urls[:MAX_DISCOVERED_URLS], origin, robots)
     if urls:
-        return origin, sources[0], urls
+        return origin, sources[0], urls, lastmods
 
     home = _fetch_text(origin + "/", fetcher)
     if home:
         links = [urljoin(origin + "/", a["href"]) for a in BeautifulSoup(home, "html.parser").find_all("a", href=True)]
         urls = filter_urls(links, origin, robots)
         if urls:
-            return origin, "homepage links", urls
+            return origin, "homepage links", urls, {}
     raise SiteAuditError(f"No sitemap or crawlable links found for {origin}.")
 
 
@@ -281,6 +346,7 @@ def audit_site(
     progress: Optional[Callable] = None,
     fetcher: Callable = fetch_page,
     workers: int = AUDIT_WORKERS,
+    recent_days: Optional[int] = DEFAULT_RECENT_DAYS,
 ) -> SiteAudit:
     """
     Discover, sample, and rate a site's pages.
@@ -295,6 +361,7 @@ def audit_site(
         progress: Optional callback(done, total)
         fetcher: fetch_page-compatible callable
         workers: Concurrent page fetches/ratings
+        recent_days: Sample pages updated within this many days (None = whole site)
 
     Returns:
         SiteAudit with pages in sample order
@@ -303,8 +370,9 @@ def audit_site(
         SiteAuditError: If no URLs can be discovered
     """
     sample_size = max(1, min(sample_size, MAX_SAMPLE))
-    origin, source, urls = discover_urls(site, fetcher)
-    sample = sample_urls(urls, sample_size)
+    origin, source, urls, lastmods = discover_urls(site, fetcher)
+    pool, pool_label = choose_pool(urls, lastmods, sample_size, recent_days)
+    sample = sample_urls(pool, sample_size)
 
     pages, done = [None] * len(sample), 0
     with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -315,7 +383,7 @@ def audit_site(
             if progress:
                 progress(done, len(sample))
 
-    return SiteAudit(site=origin, source=source or "", discovered=len(urls), pages=tuple(pages))
+    return SiteAudit(site=origin, source=source or "", discovered=len(urls), pages=tuple(pages), pool=pool_label)
 
 
 def audit_to_rows(audit: SiteAudit) -> list:

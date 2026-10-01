@@ -48,11 +48,20 @@ def no_dns(monkeypatch):
 class TestParsing:
     def test_parse_index(self):
         children, pages = parse_sitemap(INDEX)
-        assert children == ["https://ex.com/sm-posts.xml", "https://ex.com/sm-pages.xml"] and pages == []
+        assert children == [("https://ex.com/sm-posts.xml", None), ("https://ex.com/sm-pages.xml", None)]
+        assert pages == []
 
     def test_parse_urlset_trims(self):
         _, pages = parse_sitemap(POSTS)
-        assert pages[1] == "https://ex.com/blog/b"
+        assert pages[1] == ("https://ex.com/blog/b", None)
+
+    def test_parse_lastmod(self):
+        xml = ("<urlset><url><loc>https://ex.com/a</loc><lastmod>2026-09-30T10:00:00+00:00</lastmod></url>"
+               "<url><loc>https://ex.com/b</loc></url></urlset>")
+        assert parse_sitemap(xml)[1] == [("https://ex.com/a", "2026-09-30"), ("https://ex.com/b", None)]
+
+    def test_bare_locs_fallback(self):
+        assert parse_sitemap("<urlset><loc>https://ex.com/a</loc></urlset>")[1] == [("https://ex.com/a", None)]
 
     def test_robots_sitemap_lines(self):
         assert sitemaps_from_robots("User-agent: *\nSitemap: https://ex.com/a.xml\nsitemap:https://ex.com/b.xml") == [
@@ -91,18 +100,18 @@ class TestDiscover:
             "https://ex.com/sm-posts.xml": POSTS,
             "https://ex.com/sm-pages.xml": PAGES,
         })
-        origin, source, urls = discover_urls("ex.com", fetch)
+        origin, source, urls, _ = discover_urls("ex.com", fetch)
         assert origin == "https://ex.com" and source == "https://ex.com/sm-posts.xml"
         assert urls == ["https://ex.com/blog/a", "https://ex.com/blog/b", "https://ex.com/blog/c", "https://www.ex.com/about"]
 
     def test_default_sitemap_location(self):
         fetch = _fetcher({"https://ex.com/sitemap.xml": POSTS})
-        _, source, urls = discover_urls("https://ex.com", fetch)
+        _, source, urls, _ = discover_urls("https://ex.com", fetch)
         assert source == "https://ex.com/sitemap.xml" and len(urls) == 3
 
     def test_homepage_fallback(self):
         fetch = _fetcher({"https://ex.com/": '<a href="/one">1</a><a href="https://other.com/">x</a><a href="/two">2</a>'})
-        _, source, urls = discover_urls("ex.com", fetch)
+        _, source, urls, _ = discover_urls("ex.com", fetch)
         assert source == "homepage links" and urls == ["https://ex.com/one", "https://ex.com/two"]
 
     def test_source_skips_sitemaps_with_only_foreign_urls(self):
@@ -112,12 +121,52 @@ class TestDiscover:
             "https://pt.ex.com/sm.xml": "<urlset><url><loc>https://pt.ex.com/a</loc></url></urlset>",
             "https://ex.com/sm-posts.xml": POSTS,
         })
-        _, source, urls = discover_urls("ex.com", fetch)
+        _, source, urls, _ = discover_urls("ex.com", fetch)
         assert source == "https://ex.com/sm-posts.xml" and len(urls) == 3
+
+    def test_newest_sitemaps_read_first(self, monkeypatch):
+        monkeypatch.setattr(site_mod, "MAX_SITEMAPS", 2)  # index + one child
+        index = ("<sitemapindex>"
+                 "<sitemap><loc>https://ex.com/old.xml</loc><lastmod>2020-01-01</lastmod></sitemap>"
+                 "<sitemap><loc>https://ex.com/new.xml</loc><lastmod>2026-09-30</lastmod></sitemap>"
+                 "</sitemapindex>")
+        fetch = _fetcher({
+            "https://ex.com/robots.txt": "Sitemap: https://ex.com/sitemap.xml",
+            "https://ex.com/sitemap.xml": index,
+            "https://ex.com/old.xml": "<urlset><url><loc>https://ex.com/2020/a</loc></url></urlset>",
+            "https://ex.com/new.xml": "<urlset><url><loc>https://ex.com/2026/b</loc>"
+                                      "<lastmod>2026-09-30</lastmod></url></urlset>",
+        })
+        _, source, urls, lastmods = discover_urls("ex.com", fetch)
+        assert source == "https://ex.com/new.xml" and urls == ["https://ex.com/2026/b"]
+        assert lastmods == {"https://ex.com/2026/b": "2026-09-30"}
 
     def test_nothing_found(self):
         with pytest.raises(SiteAuditError, match="No sitemap"):
             discover_urls("ex.com", _fetcher({}))
+
+
+class TestChoosePool:
+    URLS = [f"https://ex.com/p/{i}" for i in range(10)]
+    TODAY = __import__("datetime").date(2026, 10, 1)
+
+    def test_recent_window(self):
+        lastmods = {u: ("2026-06-01" if i < 6 else "2019-01-01") for i, u in enumerate(self.URLS)}
+        pool, label = site_mod.choose_pool(self.URLS, lastmods, 5, today=self.TODAY)
+        assert pool == self.URLS[:6] and label == "pages updated in the last 12 months"
+
+    def test_falls_back_to_newest(self):
+        lastmods = {u: f"201{i}-01-01" for i, u in enumerate(self.URLS)}
+        pool, label = site_mod.choose_pool(self.URLS, lastmods, 2, today=self.TODAY)
+        assert pool == self.URLS[::-1][:8] and label.startswith("the newest pages")
+
+    def test_no_dates_uses_everything(self):
+        pool, label = site_mod.choose_pool(self.URLS, {}, 5, today=self.TODAY)
+        assert pool == self.URLS and "no dates" in label
+
+    def test_whole_site(self):
+        lastmods = {u: "2019-01-01" for u in self.URLS}
+        assert site_mod.choose_pool(self.URLS, lastmods, 5, recent_days=None) == (self.URLS, "the whole site")
 
 
 class TestAudit:
