@@ -24,6 +24,8 @@ probes, site audit, tabbed UI, hosted login gate.
 | 5 | **Source-type question** (earned / owned / social / UGC / reference) | AI search favors earned media (arXiv 2509.08919); owned pages need "get covered" advice, not just edits | S |
 | 6 | **Probe history**: save probe runs to compare citation rate before/after edits | The "re-run in two weeks" promise in the client report needs a baseline | M |
 | 7 | **More probe engines**: GPT web search (works, sparse citations); Claude (OpenRouter web plugin returned none; try server-side search tool) | Perplexity alone is one engine's view | S-M |
+| 7a | **Brand accuracy** (Seer's Brand Canon): define 50+ brand facts → generate direct / indirect / comparative prompts → ask several LLMs → Jev checks each answer against each fact (yes/no with probability) → accuracy % over time, with cited sources for every miss | Seer: fix how LLMs describe the brand before chasing category visibility. Jev makes checking 100+ answers nearly free | L |
+| 7b | **Probe query ladder**: organize probe questions by Seer's 4 stages (branded → branded + attribute → long-tail non-branded → non-branded) and report citation rate per stage | Shows where visibility breaks down, not just one overall number | S |
 
 ## Later: make it client-ready
 
@@ -41,7 +43,7 @@ probes, site audit, tabbed UI, hosted login gate.
 | # | Item | Size |
 |---|---|---|
 | 14 | Compare two drafts against the same query | M |
-| 15 | Multiple queries at once (topic cluster coverage) | M |
+| 15 | **Query fan-out coverage**: expand the target query into the sub-queries AI Mode would run (iPullRank) and score Content Match against each | M |
 | 16 | Similarity histogram; configurable chunk size; custom thresholds in UI | S each |
 
 ## Platform
@@ -58,3 +60,12 @@ probes, site audit, tabbed UI, hosted login gate.
 - Automatic content rewrites: the tool diagnoses; editors write.
 - Full-site crawls: sampling answers the question at a fraction of the cost.
 - llms.txt as a scored factor: low impact until AI engines use it.
+
+## References
+
+- Google Search Quality Rater Guidelines, Sept 2025 edition (`docs/reference/`, gitignored).
+- Aggarwal et al., *GEO: Generative Engine Optimization* (Princeton, KDD 2024): citations, statistics, and quotations raise AI visibility.
+- Chen et al., *Generative Engine Optimization: How to Dominate AI Search*, [arXiv 2509.08919](https://arxiv.org/abs/2509.08919): AI search strongly favors earned media over brand-owned content (→ #5).
+- Alisa Scharf (Seer Interactive), [Stop Chasing AI Rankings Before You Fix How LLMs See Your Brand](https://www.seerinteractive.com/insights/stop-chasing-ai-rankings-before-you-fix-how-llms-see-your-brand), May 2026: Brand Canon, accuracy %, 4-stage query ladder (→ #7a, #7b).
+- iPullRank, [AI Search](https://ipullrank.com/ai-search): readiness model; query fan-out, crawler access, authority signals (→ #15). Their AI Search Manual is the deeper source.
+- LangChain, [Building a harness with Jev](https://www.langchain.com/blog/building-a-harness-with-jev): typed classifier first, LLM only where needed.
