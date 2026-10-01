@@ -114,3 +114,44 @@ class OpenRouterClient:
         usage = getattr(response, "usage", None)
         cost = getattr(usage, "cost", None) if usage is not None else None
         return parsed, cost
+
+    def chat_with_citations(self, model: str, prompt: str, max_tokens: int = 600) -> tuple:
+        """
+        Ask a web-grounded model a question and collect its cited URLs.
+
+        Citations come from message.annotations[type=url_citation], the
+        format OpenRouter normalizes Perplexity Sonar and :online models to.
+
+        Args:
+            model: OpenRouter model ID (e.g. perplexity/sonar)
+            prompt: The user question, sent as-is
+            max_tokens: Completion token cap
+
+        Returns:
+            (answer text, cited URLs in order, cost in USD or None)
+
+        Raises:
+            LLMError: On API failure
+        """
+        try:
+            response = self._client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+            )
+        except OpenAIError as e:
+            raise LLMError(f"OpenRouter call to {model} failed: {e}") from e
+
+        message = response.choices[0].message
+        annotations = getattr(message, "annotations", None) or []
+        urls = []
+        for ann in annotations:
+            # SDK objects or plain dicts, depending on SDK version
+            data = ann if isinstance(ann, dict) else ann.model_dump()
+            if data.get("type") == "url_citation":
+                url = (data.get("url_citation") or {}).get("url")
+                if url and url not in urls:
+                    urls.append(url)
+        usage = getattr(response, "usage", None)
+        cost = getattr(usage, "cost", None) if usage is not None else None
+        return message.content or "", urls, cost
