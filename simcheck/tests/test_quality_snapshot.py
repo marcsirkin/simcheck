@@ -324,3 +324,33 @@ class TestReputationSameSite:
     def test_about_word_in_article_path_is_not_about_page(self):
         rep = parse_snapshot("https://example.com/x", '<a href="/blog/all-about-dkim">All about DKIM</a>').reputation
         assert rep.about is None
+
+
+class _NoCharsetResponse(_FakeResponse):
+    """Mimics requests: no charset -> encoding None, and apparent_encoding re-reads consumed content."""
+    def __init__(self, body, content_type="application/xml"):
+        self.status_code = 200
+        self.headers = {"Content-Type": content_type}
+        self._body = body
+        self.encoding = None
+
+    @property
+    def apparent_encoding(self):
+        raise RuntimeError("The content for this response was already consumed")
+
+
+class TestDecoding:
+    def test_no_charset_response_does_not_touch_apparent_encoding(self, monkeypatch, public_dns):
+        body = "<urlset><loc>https://ex.com/café</loc></urlset>".encode("utf-8")
+        monkeypatch.setattr(snap.requests, "get", lambda *a, **k: _NoCharsetResponse(body))
+        assert "café" in fetch_page("https://example.com/sitemap.xml").html
+
+    @pytest.mark.parametrize("body,ctype,expected", [
+        ("café".encode("utf-8"), "text/html", "café"),
+        ("café".encode("cp1252"), "text/html", "café"),
+        ("café".encode("latin-1"), "text/html; charset=ISO-8859-1", "café"),
+        ("café".encode("utf-8"), 'text/html; charset="utf-8"', "café"),
+        ("café".encode("utf-8"), "text/html; charset=bogus-9", "café"),
+    ])
+    def test_decode_body(self, body, ctype, expected):
+        assert snap.decode_body(body, ctype) == expected

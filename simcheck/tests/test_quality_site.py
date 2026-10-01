@@ -105,6 +105,16 @@ class TestDiscover:
         _, source, urls = discover_urls("ex.com", fetch)
         assert source == "homepage links" and urls == ["https://ex.com/one", "https://ex.com/two"]
 
+    def test_source_skips_sitemaps_with_only_foreign_urls(self):
+        fetch = _fetcher({
+            "https://ex.com/sitemap.xml": "<sitemapindex><sitemap><loc>https://pt.ex.com/sm.xml</loc></sitemap>"
+                                          "<sitemap><loc>https://ex.com/sm-posts.xml</loc></sitemap></sitemapindex>",
+            "https://pt.ex.com/sm.xml": "<urlset><url><loc>https://pt.ex.com/a</loc></url></urlset>",
+            "https://ex.com/sm-posts.xml": POSTS,
+        })
+        _, source, urls = discover_urls("ex.com", fetch)
+        assert source == "https://ex.com/sm-posts.xml" and len(urls) == 3
+
     def test_nothing_found(self):
         with pytest.raises(SiteAuditError, match="No sitemap"):
             discover_urls("ex.com", _fetcher({}))

@@ -237,6 +237,30 @@ def is_challenge_page(html: str) -> bool:
     return len(html) <= CHALLENGE_MAX_BYTES and bool(_CHALLENGE_RE.search(html))
 
 
+_CHARSET_RE = re.compile(r"charset\s*=\s*[\"']?([\w.:-]+)", re.IGNORECASE)
+
+
+def decode_body(body: bytes, content_type: str) -> str:
+    """
+    Decode a response body we already read.
+
+    Never use response.apparent_encoding here: the body was consumed by the
+    capped stream read, and requests raises "content already consumed".
+    Order: declared charset, then UTF-8, then Windows-1252 (which maps
+    every byte, so decoding always succeeds).
+    """
+    match = _CHARSET_RE.search(content_type or "")
+    if match:
+        try:
+            return body.decode(match.group(1), errors="replace")
+        except LookupError:
+            pass  # unknown charset name; fall through to sniffing
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError:
+        return body.decode("cp1252", errors="replace")
+
+
 def fetch_page(url: str, timeout: int = FETCH_TIMEOUT_SECONDS) -> FetchResult:
     """
     Fetch a URL, validating every redirect hop.
@@ -287,8 +311,7 @@ def fetch_page(url: str, timeout: int = FETCH_TIMEOUT_SECONDS) -> FetchResult:
         if response.status_code >= 400:
             raise SnapshotError(f"HTTP {response.status_code} for {current}")
 
-        encoding = response.encoding or response.apparent_encoding or "utf-8"
-        html = body.decode(encoding, errors="replace")
+        html = decode_body(body, response.headers.get("Content-Type", ""))
         if is_challenge_page(html):
             raise FetchBlockedError(current, response.status_code)
         return FetchResult(

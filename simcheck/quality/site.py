@@ -226,7 +226,7 @@ def discover_urls(site: str, fetcher: Callable = fetch_page) -> tuple:
         robots.parse(robots_txt.splitlines())
 
     queue = sitemaps_from_robots(robots_txt or "") or [f"{origin}/sitemap.xml", f"{origin}/sitemap_index.xml"]
-    seen, urls, source = set(), [], None
+    seen, urls, sources = set(), [], []
     while queue and len(seen) < MAX_SITEMAPS and len(urls) < MAX_DISCOVERED_URLS:
         sm = queue.pop(0)
         if sm in seen:
@@ -237,13 +237,16 @@ def discover_urls(site: str, fetcher: Callable = fetch_page) -> tuple:
             continue
         children, pages = parse_sitemap(xml)
         queue += [c for c in children if c not in seen]
-        if pages:
-            source = source or sm
-            urls += pages
+        kept = filter_urls(pages, origin, robots)
+        if kept:
+            # Report a sitemap that actually contributed pages, not e.g. a
+            # foreign-language subdomain sitemap whose URLs were all filtered.
+            sources.append(sm)
+            urls += kept
 
     urls = filter_urls(urls[:MAX_DISCOVERED_URLS], origin, robots)
     if urls:
-        return origin, source, urls
+        return origin, sources[0], urls
 
     home = _fetch_text(origin + "/", fetcher)
     if home:
