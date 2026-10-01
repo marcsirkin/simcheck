@@ -460,19 +460,42 @@ class FakeClassifier:
         return answers
 
 
-def make_classifier(keys) -> Optional[QualityClassifier]:
+# Rating modes. "jev" is the v1 default: golden-set results so far show
+# Claude changes Jev's band on most pages, but whether it is *more right*
+# awaits human labels (eval/run_eval.py). Claude stays available for
+# on-demand explanations and for "hybrid" once the eval justifies it.
+CLASSIFIER_MODES = ("jev", "hybrid", "claude")
+DEFAULT_MODE = "jev"
+
+
+def make_classifier(keys, mode: str = DEFAULT_MODE) -> Optional[QualityClassifier]:
     """
-    Pick the best available backend for the configured keys.
+    Build the rating backend for a mode, given the configured keys.
+
+    Falls back to whichever backend is available when the requested one
+    lacks its key (e.g. "jev" with only an OpenRouter key -> Claude).
 
     Args:
         keys: ApiKeys from simcheck.config.load_api_keys()
+        mode: "jev" (default), "hybrid", or "claude"
 
     Returns:
-        HybridClassifier (both keys), JevClassifier (TypeSafe only),
-        ClaudeClassifier (OpenRouter only), or None (no keys)
+        A classifier, or None if no keys are configured
+
+    Raises:
+        ValueError: On an unknown mode
     """
+    if mode not in CLASSIFIER_MODES:
+        raise ValueError(f"Unknown classifier mode {mode!r}; expected one of {CLASSIFIER_MODES}")
     jev = JevClassifier(api_key=keys.typesafe) if keys.has_typesafe else None
     claude = ClaudeClassifier(OpenRouterClient(api_key=keys.openrouter)) if keys.has_openrouter else None
-    if jev and claude:
+    if mode == "hybrid" and jev and claude:
         return HybridClassifier(jev, claude)
+    if mode == "claude" and claude:
+        return claude
     return jev or claude
+
+
+def make_explainer(keys) -> Optional[ClaudeClassifier]:
+    """Claude backend for on-demand evidence, or None without an OpenRouter key."""
+    return ClaudeClassifier(OpenRouterClient(api_key=keys.openrouter)) if keys.has_openrouter else None

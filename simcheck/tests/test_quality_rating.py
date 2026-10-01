@@ -16,6 +16,7 @@ from simcheck.quality.classifier import (
     JevClassifier,
     build_state,
     make_classifier,
+    make_explainer,
     needs_escalation,
 )
 from simcheck.quality.llm_client import LLMError, OpenRouterClient
@@ -393,8 +394,24 @@ class TestMakeClassifier:
     def test_no_keys(self):
         assert make_classifier(ApiKeys()) is None
 
-    def test_selection(self):
-        assert isinstance(make_classifier(ApiKeys(typesafe="ts-test-000000000")), JevClassifier)
+    def test_default_is_jev_even_with_both_keys(self):
+        both = ApiKeys(typesafe="ts-test-000000000", openrouter="sk-or-test-0000")
+        assert isinstance(make_classifier(both), JevClassifier)
+
+    def test_modes(self):
+        both = ApiKeys(typesafe="ts-test-000000000", openrouter="sk-or-test-0000")
+        assert isinstance(make_classifier(both, "hybrid"), HybridClassifier)
+        assert isinstance(make_classifier(both, "claude"), ClaudeClassifier)
+
+    def test_falls_back_to_available_backend(self):
         assert isinstance(make_classifier(ApiKeys(openrouter="sk-or-test-0000")), ClaudeClassifier)
-        assert isinstance(make_classifier(ApiKeys(typesafe="ts-test-000000000", openrouter="sk-or-test-0000")),
-                          HybridClassifier)
+        assert isinstance(make_classifier(ApiKeys(typesafe="ts-test-000000000"), "hybrid"), JevClassifier)
+        assert isinstance(make_classifier(ApiKeys(typesafe="ts-test-000000000"), "claude"), JevClassifier)
+
+    def test_unknown_mode(self):
+        with pytest.raises(ValueError):
+            make_classifier(ApiKeys(), "gpt")
+
+    def test_explainer_needs_openrouter(self):
+        assert make_explainer(ApiKeys(typesafe="ts-test-000000000")) is None
+        assert isinstance(make_explainer(ApiKeys(openrouter="sk-or-test-0000")), ClaudeClassifier)
