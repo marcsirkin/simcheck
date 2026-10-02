@@ -25,6 +25,7 @@ probes, site audit, tabbed UI, hosted login gate.
 | 6 | **Probe history**: save probe runs to compare citation rate before/after edits | The "re-run in two weeks" promise in the client report needs a baseline | M |
 | 7 | **More probe engines**: GPT web search (works, sparse citations); Claude (OpenRouter web plugin returned none; try server-side search tool) | Perplexity alone is one engine's view | S-M |
 | 7a | **Brand accuracy** (Seer's Brand Canon): define 50+ brand facts → generate direct / indirect / comparative prompts → ask several LLMs → Jev checks each answer against each fact (yes/no with probability) → accuracy % over time, with cited sources for every miss | Seer: fix how LLMs describe the brand before chasing category visibility. Jev makes checking 100+ answers nearly free | L |
+| 7c | **Local MCP server** (stdio, `python -m simcheck.mcp`): tools for analyze_page, rate_page, check_ai_access, content_match, run_probes, explain_rating, audit_site. Uses the local key file; paid tools state cost and respect the daily caps; page content returned as structured signals and labeled excerpts, never raw HTML (prompt injection) | Drive SimCheck from Claude Code or any MCP client: "audit this site, then draft fixes for the worst pages" | S-M |
 | 7b | **Probe query ladder**: organize probe questions by Seer's 4 stages (branded → branded + attribute → long-tail non-branded → non-branded) and report citation rate per stage | Shows where visibility breaks down, not just one overall number | S |
 
 ## Later: make it client-ready
@@ -51,7 +52,7 @@ probes, site audit, tabbed UI, hosted login gate.
 | # | Item | When |
 |---|---|---|
 | 17 | Move hosting to Hugging Face Spaces or Render | If Streamlit Cloud runs out of memory or sleeps too often |
-| 18 | API endpoint for scripting / batch jobs | If used beyond the UI |
+| 18 | Remote API / remote MCP (separate FastAPI service; per-client tokens; reuse access.py limits) | When other people's apps need it, after #7c |
 | 19 | Lighter embeddings (ONNX via fastembed, same bge model, no torch) | If hosting size or cold starts hurt |
 | 20 | Move off Streamlit (FastAPI + front end) | Only if the UI limits start costing real use |
 
