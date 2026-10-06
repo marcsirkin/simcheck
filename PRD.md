@@ -369,7 +369,7 @@ Quality Rater Guidelines and measures AI visibility directly.
 ### Feature 12: v2 UI ✅
 - [x] One URL drives five tabs: Report, Page Quality, LLM Visibility, Content Match (v1), Site Audit
 - [x] Report: generated finding headline, three figures, summary, fix-first list
-- [x] Shareable client report (HTML, no probabilities/model names) + JSON export
+- [x] Complete shareable client report: summary plus all available Page Quality, crawler/probe, and Content Match detail (HTML, no probabilities/model provenance) + complete structured JSON export
 
 ### Feature 13: Citation Probes ✅
 - [x] Perplexity Sonar via OpenRouter; cited?/position/competitors per question; click-only, cost shown
@@ -442,7 +442,7 @@ See [ROADMAP.md](ROADMAP.md) for the prioritized backlog (v1 carry-overs include
 
 ## Session Management
 
-**Test Count:** 556 passing
+**Test Count:** 557 passing
 **Features Complete:** 1-14 (11 awaiting golden-set ratings)
 **Version:** v2.0.0
 **Status:** QRG page rating, AI access, citation probes, site audit, tabbed UI with shareable report

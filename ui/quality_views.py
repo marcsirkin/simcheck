@@ -301,10 +301,17 @@ def render_report_tab() -> None:
         _html(f'<div class="sc"><p class="sc-meta">{meta}</p></div>')
     with right:
         e1, e2 = st.columns(2)
-        e1.download_button("Share report", share_report_html(a["url"], report, rating, s.probes),
+        e1.download_button("Share report", share_report_html(
+                               a["url"], report, rating, s.probes,
+                               snapshot=snapshot, access=access, readiness=readiness,
+                               geo=geo, diagnostic=s.get("diagnostic_report"),
+                               explanation=s.explanation,
+                           ),
                            file_name=f"{host}-report.html", mime="text/html", use_container_width=True)
         e2.download_button("Export JSON", analysis_json(a["url"], a["query"], report=report, rating=rating,
-                                                        access=access, readiness=readiness, probes=s.probes),
+                                                        snapshot=snapshot, access=access, readiness=readiness,
+                                                        geo=geo, diagnostic=s.get("diagnostic_report"),
+                                                        probes=s.probes, explanation=s.explanation),
                            file_name=f"{host}-analysis.json", mime="application/json", use_container_width=True)
 
     figs = []

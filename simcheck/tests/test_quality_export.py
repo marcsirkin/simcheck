@@ -4,6 +4,7 @@ import csv
 import io
 import json
 from datetime import date
+from types import SimpleNamespace
 
 from simcheck.quality.export import analysis_json, audit_csv, band_color, share_report_html
 from simcheck.quality.probe import ProbeReport, evaluate_answer
@@ -32,6 +33,14 @@ def _probes():
 class _Rating:
     rated = True
     band = "High+"
+    pq_score_rounded = 88
+    purpose = "informational"
+    ymyl = "no"
+    ymyl_topic = "none"
+    needs_met = "Highly Meets"
+    eeat = {"trust": 3.5, "authoritativeness": 3.0, "expertise": 3.5, "experience": 2.5}
+    reasons = ("Trust rated High.",)
+    gates = ()
 
 
 def test_share_report_contents():
@@ -43,7 +52,8 @@ def test_share_report_contents():
     assert "<li" in html and "about 40 minutes" in html
     assert "Perplexity Sonar" in html
     assert "<script" not in html.lower()
-    for leaked in ("confidence", "probabilit", "Jev", "Claude"):
+    # Claude crawler names are client-facing access facts; model provenance is not.
+    for leaked in ("confidence", "probabilit", "Jev", "Rated by Claude"):
         assert leaked not in html
 
 
@@ -59,12 +69,77 @@ def test_share_report_without_rating_or_probes():
     assert "Perplexity" not in html
 
 
+def test_share_report_includes_all_available_sections():
+    snapshot = SimpleNamespace(
+        title="DKIM guide", author_name="Jane", published="2026-01-01", modified="2026-09-01",
+        lang="en", word_count=1200, headings=(("h1", "DKIM"), ("h2", "Setup")), h1_count=1,
+        schema_types=("Article",), external_link_count=4,
+        reputation=SimpleNamespace(about="/about", contact="/contact", privacy=None, terms=None,
+                                   editorial_policy="/standards"),
+        ads=SimpleNamespace(ad_slot_count=0, affiliate_link_count=0, sponsored_link_count=0),
+    )
+    access = SimpleNamespace(
+        bot_access={name: (name != "GPTBot") for name in (
+            "GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-SearchBot",
+            "Claude-User", "PerplexityBot", "Google-Extended", "CCBot",
+        )},
+        noindex=False, nosnippet=False, client_rendered_suspect=False,
+        schema_types=("Article",), llms_txt_present=True,
+        issues=(SimpleNamespace(severity="low", message="Training crawler blocked."),),
+    )
+    readiness = SimpleNamespace(
+        score_rounded=72, interpretation="Solid signal coverage",
+        components={"coverage": 66, "structure": 80, "evidence": 70, "answerability": 75},
+    )
+    geo = SimpleNamespace(
+        intent=SimpleNamespace(value="informational"), page_type=SimpleNamespace(value="article"),
+        steps=(SimpleNamespace(title="Clarify the opening", priority=SimpleNamespace(value="medium"),
+                               minutes=15, why="The answer appears late.",
+                               how="Move the clearest answer earlier if it reads naturally."),),
+    )
+    chunks = [SimpleNamespace(chunk_index=0, similarity=0.54, normalized_score=1.0,
+                              interpretation="Weak", text="DKIM authenticates outbound email.")]
+    diagnostic = SimpleNamespace(
+        query="how to configure DKIM",
+        coverage=SimpleNamespace(score_rounded=58, interpretation="Weak"),
+        summary=SimpleNamespace(total_chunks=1, min_similarity=0.54, max_similarity=0.54,
+                                avg_similarity=0.54, chunks_strong=0, chunks_moderate=0,
+                                chunks_weak=1, chunks_off_topic=0),
+        by_document_order=lambda: chunks,
+    )
+    explanation = {"trust": SimpleNamespace(evidence="The named author links sources.")}
+
+    html = share_report_html(
+        URL, _report(), _Rating(), _probes(), snapshot=snapshot, access=access,
+        readiness=readiness, geo=geo, diagnostic=diagnostic, explanation=explanation,
+        report_date=date(2026, 10, 1),
+    )
+
+    for expected in (
+        "Page Quality", "E-E-A-T", "What the rater saw", "Evidence explanation",
+        "LLM Visibility", "Crawler access", "Citation probes", "Content Match",
+        "Experimental content patterns", "All editorial options", "Chunk diagnostics",
+        "DKIM authenticates outbound email.",
+    ):
+        assert expected in html
+    for leaked in ("confidence", "probabilit", "Jev", "Rated by Claude"):
+        assert leaked not in html
+
+
 def test_analysis_json_round_trips():
-    data = json.loads(analysis_json(URL, "dkim", report=_report(), probes=_probes(), rating=None))
+    data = json.loads(analysis_json(
+        URL, "dkim", report=_report(), probes=_probes(), rating=None,
+        snapshot={"title": "DKIM guide"}, geo={"page_type": "article"},
+        diagnostic={"chunks": [{"similarity": 0.54}]}, explanation={"trust": "evidence"},
+    ))
     assert data["url"] == URL and data["query"] == "dkim"
     assert "rating" not in data
     assert data["report"]["fixes"][0]["title"] == "Answer first"
     assert data["probes"]["results"][0]["cited_hosts"] == ["mayoclinic.org"]
+    assert data["snapshot"]["title"] == "DKIM guide"
+    assert data["geo"]["page_type"] == "article"
+    assert data["diagnostic"]["chunks"][0]["similarity"] == 0.54
+    assert data["explanation"]["trust"] == "evidence"
 
 
 def test_audit_csv():

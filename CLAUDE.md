@@ -27,7 +27,7 @@ simcheck/
 │   ├── site.py             # sitemap discovery, stratified sampling, audit
 │   ├── export.py           # shareable HTML report, JSON, CSV
 │   └── evaluation.py       # golden-set metrics + offline hybrid simulation
-├── tests/                  # 556 tests; external app calls faked, embedding model loaded locally
+├── tests/                  # 557 tests; external app calls faked, embedding model loaded locally
 ui/quality_views.py         # Streamlit views for Report / Page Quality / LLM Visibility / Site Audit
 app.py                      # Streamlit router: header, URL bar, 5 tabs; Content Match = v1 flow
 eval/run_eval.py            # golden-set agreement (eval/data/ gitignored: client sites)
@@ -142,7 +142,7 @@ docs/reference/             # Google QRG PDF/text (gitignored, re-fetch steps in
 - Validate inputs at module boundaries
 
 ### Testing
-- Unit tests for all core logic (556 tests); external app calls are faked
+- Unit tests for all core logic (557 tests); external app calls are faked
 - Test edge cases explicitly
 - Use pytest conventions
 
@@ -170,6 +170,6 @@ git config core.hooksPath .githooks   # gitleaks pre-commit (brew install gitlea
 
 ## Current Status
 **Features Complete:** 1-14
-**Test Count:** 556 passing
+**Test Count:** 557 passing
 **Status:** v2.0.0 on `main` (tagged) — QRG page rating (Jev), AI access, citation probes, site audit, tabbed UI with shareable report, hosted login gate
 **Next:** see ROADMAP.md (golden-set eval first)

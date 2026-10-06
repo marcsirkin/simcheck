@@ -8,7 +8,7 @@ Give SimCheck a URL. It rates the page against Google's Search Quality Rater Gui
 
 | Tab | Answers | How |
 |---|---|---|
-| **Report** | What's the finding, and what should I consider next? | Generated headline finding, three figures, summary, and ranked editorial or technical options. Exports a shareable client report (HTML) and full JSON. |
+| **Report** | What's the finding, and what should I consider next? | Generated headline finding, three figures, summary, and ranked editorial or technical options. The shareable HTML includes all available Page Quality, LLM Visibility, probe, and Content Match detail; JSON preserves the complete structured analysis. |
 | **Page Quality** | How would a Google Quality Rater score this page? | 15 rubric questions from the QRG (Sept 2025 edition) answered by Jev, TypeSafe's typed classifier. Band on Google's 9-point scale plus a 0-100 score, E-E-A-T breakdown, YMYL, Needs Met. "Explain this rating" asks Claude for quoted evidence. |
 | **LLM Visibility** | Can AI reach it? Does AI cite it? | robots.txt rules for 9 AI crawlers (search vs training), noindex/nosnippet, JavaScript rendering, schema, llms.txt. Click-to-run citation probes ask Perplexity real questions and show who got cited instead. |
 | **Content Match** | Does the text cover the query? | Local embeddings, Concept Coverage Score, an experimental content-pattern score, drift map, and page-purpose-aware editorial options. Paste a draft here to compare edits. |
@@ -160,7 +160,7 @@ Revoke someone by removing their entry from `SIMCHECK_ACCESS_CODES` and rebootin
 pytest simcheck/tests/ -v
 ```
 
-556 tests. Classifiers, OpenRouter, and page-fetch HTTP are faked. Embedding tests load the configured local model and may perform a Hugging Face metadata check.
+557 tests. Classifiers, OpenRouter, and page-fetch HTTP are faked. Embedding tests load the configured local model and may perform a Hugging Face metadata check.
 
 ## Roadmap
 
