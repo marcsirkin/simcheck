@@ -200,10 +200,10 @@ class TestHeadline:
         access = _access(snap, "User-agent: PerplexityBot\nDisallow: /\n")
         assert "blocks the crawlers" in build_headline(rate_page(snap, FakeClassifier()), access, _probes([True]), None)
 
-    def test_falls_back_to_simscore_without_probes(self):
+    def test_does_not_claim_citation_readiness_without_probes(self):
         snap = _snapshot()
         h = build_headline(rate_page(snap, FakeClassifier()), _access(snap), None, _readiness(59))
-        assert h == "Google would rate this page High. Its content isn't shaped for AI answers yet."
+        assert h == "Google would rate this page High. AI search crawlers can reach it, but citation has not been tested."
 
     def test_unrated_csr_page(self):
         spa = parse_snapshot("https://app.example/", (FIXTURES / "thin_spa.html").read_text())
@@ -228,10 +228,10 @@ class TestBuildReport:
         assert "updated in August 2026" in quality
         assert "Every AI search crawler can reach it." in visibility
         assert "wasn't cited in any of the 3 AI answers" in visibility and "mayoclinic.org" in visibility
-        assert "covers the target query unevenly" in visibility
+        assert "likely cause" not in visibility
         assert report.quality_line == "YMYL health page, trust rated High."
         assert report.visibility_line.startswith("Cited instead: ")
-        assert report.simscore_line == "Covers the target query at 52/100."
+        assert report.simscore_line.startswith("Experimental heuristic. Target coverage: 52/100.")
         titles = [f.title for f in report.fixes]
         assert titles[0].startswith("Front-load a direct answer")
         assert "Add a first-hand perspective" in titles
@@ -246,7 +246,7 @@ class TestBuildReport:
 
     def test_minimal_inputs(self):
         report = build_report(readiness=_readiness(85))
-        assert report.headline == "It is well shaped for AI answers."
+        assert report.headline == "Analysis complete."
         assert report.fixes == ()
 
     def test_no_em_dashes_in_generated_copy(self):

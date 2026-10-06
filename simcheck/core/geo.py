@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from enum import Enum
 import re
 from typing import Iterable, List, Optional
+from urllib.parse import urlparse
 
 from simcheck.core.diagnostics import DiagnosticReport, ChunkDiagnostic
 from simcheck.core.models import SIMILARITY_THRESHOLDS
@@ -32,6 +33,17 @@ class GeoIntent(Enum):
     COMMERCIAL = "commercial"
 
 
+class PageType(Enum):
+    """The job the page itself is meant to do, separate from query intent."""
+
+    AUTO = "auto"
+    ARTICLE = "article"
+    HOW_TO = "how_to"
+    COMMERCIAL = "commercial"
+    HOMEPAGE = "homepage"
+    REFERENCE = "reference"
+
+
 class GeoPriority(Enum):
     HIGH = "high"
     MEDIUM = "medium"
@@ -41,7 +53,7 @@ class GeoPriority(Enum):
 @dataclass(frozen=True)
 class ContentSignals:
     """
-    Simple structure/evidence signals that correlate with "AI answerability".
+    Observable structure and evidence signals used for editorial diagnostics.
 
     These are intentionally heuristic and format-agnostic.
     """
@@ -79,6 +91,7 @@ class GeoNextStepsReport:
     steps: List[GeoNextStep]
     signals: ContentSignals
     intent: GeoIntent
+    page_type: PageType = PageType.ARTICLE
 
     def high_priority(self) -> List[GeoNextStep]:
         return [s for s in self.steps if s.priority == GeoPriority.HIGH]
@@ -164,6 +177,35 @@ def infer_intent(query: str) -> GeoIntent:
 
     # Default: informational
     return GeoIntent.INFORMATIONAL
+
+
+def infer_page_type(
+    document: str,
+    intent: GeoIntent,
+    *,
+    page_url: str = "",
+    classified_purpose: Optional[str] = None,
+) -> PageType:
+    """Infer a conservative page type from available page context."""
+    purpose = (classified_purpose or "").strip().lower()
+    if purpose == "navigational":
+        return PageType.HOMEPAGE
+    if purpose in {"commercial", "transactional"}:
+        return PageType.COMMERCIAL
+
+    if page_url:
+        path = urlparse(page_url).path.rstrip("/")
+        if not path:
+            return PageType.HOMEPAGE
+
+    text = (document or "")[:3000].lower()
+    if re.search(r"\b(api reference|developer reference|function reference|class reference)\b", text):
+        return PageType.REFERENCE
+    if intent == GeoIntent.HOW_TO:
+        return PageType.HOW_TO
+    if intent == GeoIntent.COMMERCIAL:
+        return PageType.COMMERCIAL
+    return PageType.ARTICLE
 
 
 def extract_content_signals(document: str, query: str) -> ContentSignals:
@@ -264,6 +306,9 @@ def generate_geo_next_steps(
     document: str,
     *,
     intent_override: GeoIntent = GeoIntent.AUTO,
+    page_type_override: PageType = PageType.AUTO,
+    page_url: str = "",
+    classified_purpose: Optional[str] = None,
     max_steps: int = 7,
 ) -> GeoNextStepsReport:
     """
@@ -274,6 +319,11 @@ def generate_geo_next_steps(
     structure, and add evidence.
     """
     intent = infer_intent(report.query) if intent_override == GeoIntent.AUTO else intent_override
+    page_type = (
+        infer_page_type(document, intent, page_url=page_url, classified_purpose=classified_purpose)
+        if page_type_override == PageType.AUTO
+        else page_type_override
+    )
     signals = extract_content_signals(document, report.query)
 
     total_chunks = report.summary.total_chunks
@@ -283,6 +333,7 @@ def generate_geo_next_steps(
             steps=[],
             signals=signals,
             intent=intent,
+            page_type=page_type,
         )
 
     doc_chunks = report.by_document_order()
@@ -306,25 +357,26 @@ def generate_geo_next_steps(
 
     steps: List[GeoNextStep] = []
 
-    # 1) Front-load the answer (GEO critical)
+    # 1) Put the page's purpose early. Definitions are appropriate for
+    # explanatory pages, not a universal requirement.
     front_load_needed = (
         signals.intro_query_term_coverage < 0.5
         or best_pos > 0.4
         or (intro_avg + 0.05) < overall_avg
     )
-    if front_load_needed:
+    if front_load_needed and page_type not in (PageType.HOMEPAGE, PageType.COMMERCIAL):
         target = [c for c in doc_chunks[: min(3, len(doc_chunks))]]
         steps.append(GeoNextStep(
-            title="Front-load a direct answer + definition (first ~150 words)",
+            title="Consider clarifying the answer near the top",
             priority=GeoPriority.HIGH,
             minutes=15,
             why=(
-                "AI systems heavily weight early sections when summarizing or selecting snippets. "
-                "If the intro doesn’t clearly name and define the topic, relevance is harder to infer."
+                "The strongest-matching passage appears late or the introduction only partly names the target. "
+                "A clearer opening may help readers and retrieval systems understand the page sooner."
             ),
             how=(
-                "Add a 2–4 sentence lead that (1) defines the topic, (2) states who it’s for / when it applies, "
-                "and (3) previews the main subtopics you cover. Reuse exact terms from your target topic."
+                "If it fits the page's voice, use a short lead that states the answer or outcome, who it is for, "
+                "and what the page covers. Use the target language naturally; do not repeat it solely to raise the score."
             ),
             examples=(
                 "Template:\n"
@@ -335,33 +387,32 @@ def generate_geo_next_steps(
         ))
 
     # 1b) Add a crisp definition near the top (especially informational queries)
-    if intent in (GeoIntent.INFORMATIONAL, GeoIntent.HOW_TO) and not signals.has_definition_near_top:
+    if page_type in (PageType.ARTICLE, PageType.REFERENCE) and intent == GeoIntent.INFORMATIONAL and not signals.has_definition_near_top:
         steps.append(GeoNextStep(
-            title="Add a crisp definition near the top (1–2 sentences)",
+            title="Consider a concise definition near the top",
             priority=GeoPriority.HIGH if report.coverage.score < 70 else GeoPriority.MEDIUM,
             minutes=10,
-            why="Clear definitions reduce ambiguity and increase quoteability in AI summaries.",
+            why="For explanatory and reference pages, a concise definition can reduce ambiguity for readers.",
             how=(
-                "Add a sentence that directly defines the target topic using the exact name, then follow with "
-                "a second sentence that clarifies scope (what it includes/excludes)."
+                "If the audience needs it, define the topic in one sentence and clarify its scope in a second. "
+                "Skip this when a definition would make the opening feel mechanical."
             ),
         ))
 
     # 2) Remove or rewrite off-topic content (CCS + GEO)
-    if off_topic_percent >= 0.10:
+    if off_topic_percent >= 0.10 and page_type != PageType.HOMEPAGE:
         priority = GeoPriority.HIGH if off_topic_percent >= 0.15 else GeoPriority.MEDIUM
         steps.append(GeoNextStep(
-            title="Rewrite or cut off-topic sections (reduce topical drift)",
+            title="Review lower-alignment sections for intentional drift",
             priority=priority,
             minutes=20,
             why=(
-                "Off-topic sections dilute topical focus and can prevent AI systems from confidently "
-                "treating the page as an authoritative answer for the target topic."
+                "These sections have lower semantic alignment with the supplied target. They may be useful context, "
+                "or they may be distracting; the score alone cannot decide which."
             ),
             how=(
-                "For each off-topic chunk: either (a) connect it back to the target topic with a clear bridge "
-                "sentence and relevant examples, or (b) remove/condense it. "
-                f"Aim to get these chunks above {weak_threshold:.2f}."
+                "Review each highlighted chunk. Keep it when it serves the page's purpose; otherwise connect it more "
+                "clearly, condense it, move it to a better page, or remove it. Do not edit merely to cross a threshold."
             ),
             target_chunks=off_topic[:5],
         ))
@@ -369,22 +420,22 @@ def generate_geo_next_steps(
     # 3) Strengthen weak chunks into "moderate"
     if weak_chunks:
         steps.append(GeoNextStep(
-            title=f"Strengthen weak sections with concrete specifics (raise to ≥{moderate_threshold:.2f})",
+            title="Review partially aligned sections for clarity and specificity",
             priority=GeoPriority.MEDIUM,
             minutes=25,
             why=(
-                "Weak chunks signal partial relevance. Adding specific entities, constraints, examples, "
-                "and explicit mentions of the target concept typically improves alignment."
+                "These chunks are semantically related but less aligned than stronger sections. That can reflect "
+                "vagueness, intentional breadth, or a mismatch between the page and the target."
             ),
             how=(
-                "Add: key terms, named tools/entities, numbers, and a short example. "
-                "Replace vague language (“this”, “it”, “some”) with explicit references to the topic."
+                "Where useful, replace vague references with concrete entities, constraints, evidence, or examples. "
+                "Preserve natural language and the author's voice rather than inserting target terms mechanically."
             ),
             target_chunks=weak_chunks[:5],
         ))
 
     # 3b) Intent-specific “answerability” structure
-    if intent == GeoIntent.HOW_TO and not signals.has_steps:
+    if page_type == PageType.HOW_TO and not signals.has_steps:
         steps.append(GeoNextStep(
             title="Add step-by-step instructions (numbered steps + prerequisites)",
             priority=GeoPriority.HIGH if report.coverage.score < 70 else GeoPriority.MEDIUM,
@@ -397,7 +448,7 @@ def generate_geo_next_steps(
             examples="`## Prerequisites` ...\n\n`## Steps`\n1. ...\n2. ...",
         ))
 
-    if intent == GeoIntent.COMMERCIAL and not signals.has_comparison_language and signals.word_count >= 400:
+    if page_type == PageType.COMMERCIAL and not signals.has_comparison_language and signals.word_count >= 400:
         steps.append(GeoNextStep(
             title="Add a comparison section (alternatives, pros/cons, decision factors)",
             priority=GeoPriority.MEDIUM,
@@ -421,78 +472,79 @@ def generate_geo_next_steps(
                 "They also make it easier to cover subtopics without drifting."
             ),
             how=(
-                "Add 4–8 `##` sections covering the main subtopics. For each, add a one-paragraph direct answer "
-                "and (optionally) bullets or a table."
+                "Add descriptive sections where they improve scanning. Use question headings only when questions "
+                "match how the audience approaches this page; a homepage or landing page may use benefit-led headings."
             ),
             examples="Example headings: `## What is <TOPIC>?` `## When to use <TOPIC>` `## Steps` `## FAQ`",
         ))
 
     # 5) Evidence / citations
-    if (signals.link_count == 0 or not signals.has_sources_section) and signals.word_count >= 300:
+    if (page_type in (PageType.ARTICLE, PageType.HOW_TO, PageType.REFERENCE)
+            and (signals.link_count == 0 or not signals.has_sources_section)
+            and signals.word_count >= 300):
         steps.append(GeoNextStep(
             title="Add evidence: cite reputable sources and link out",
             priority=GeoPriority.MEDIUM,
             minutes=15,
             why=(
-                "LLMs are more likely to trust and cite content that anchors claims in reputable sources. "
-                "Outbound links also clarify definitions and entities."
+                "Important factual claims are easier for readers to verify when they point to primary or authoritative sources."
             ),
             how=(
                 "Add 2–5 outbound links to authoritative sources for key claims/definitions. "
                 "Prefer primary sources (standards, docs) or widely recognized publications."
             ),
-            examples="Add a short `## Sources` section with bullet links.",
+            examples="Cite sources next to the relevant claims, or add a Sources section when that format suits the page.",
         ))
 
     # 5b) Add examples (quoteability + disambiguation)
-    if not signals.has_examples and signals.word_count >= 400:
+    if page_type in (PageType.ARTICLE, PageType.HOW_TO, PageType.REFERENCE) and not signals.has_examples and signals.word_count >= 400:
         steps.append(GeoNextStep(
             title="Add 2–3 concrete examples (entities, numbers, scenarios)",
             priority=GeoPriority.MEDIUM if report.coverage.score < 80 else GeoPriority.LOW,
             minutes=15,
-            why="Examples reduce vagueness and help AI systems extract specific, reusable claims.",
+            why="Examples can reduce vagueness and make an explanation easier for readers to apply.",
             how="Add a short examples subsection under the most important headings. Include at least one numeric detail.",
         ))
 
     # 6) FAQ / intent coverage
-    if not signals.has_faq and signals.word_count >= 500:
+    if page_type in (PageType.ARTICLE, PageType.HOW_TO, PageType.REFERENCE) and not signals.has_faq and signals.word_count >= 500:
         priority = GeoPriority.MEDIUM if report.coverage.score < 70 else GeoPriority.LOW
         steps.append(GeoNextStep(
             title="Add an FAQ that answers the top 5–8 questions",
             priority=priority,
             minutes=25,
             why=(
-                "FAQs expand intent coverage and create highly quotable question/answer pairs. "
-                "This tends to help AI summaries and conversational search."
+                "An FAQ can cover genuine follow-up questions compactly, but only when those questions do not fit "
+                "more naturally in the main narrative."
             ),
             how=(
-                "Add a `## FAQ` section. Use question headings (e.g., `### ...?`) and answer each in 2–4 sentences. "
-                "Include the target terms in the question and first sentence of each answer."
+                "Consider an FAQ for recurring audience questions. Skip it when it would duplicate the article or "
+                "turn natural prose into a search template."
             ),
         ))
 
     # 7) TL;DR / summary block
-    if not signals.has_tldr and signals.word_count >= 700:
+    if page_type in (PageType.ARTICLE, PageType.HOW_TO, PageType.REFERENCE) and not signals.has_tldr and signals.word_count >= 700:
         steps.append(GeoNextStep(
-            title="Add a TL;DR box (2–4 bullets) near the top",
+            title="Consider a short summary for readers who scan",
             priority=GeoPriority.LOW,
             minutes=10,
             why=(
-                "A short summary improves scanability and gives AI systems a concise set of claims to reuse."
+                "A short summary can improve scanability on a long explanatory page. It is optional, not a universal format requirement."
             ),
-            how="Add `TL;DR:` followed by 2–4 bullets stating the main conclusions and recommended actions.",
+            how="If it suits the voice, add two to four bullets with the main conclusions or actions. A descriptive standfirst can work just as well.",
         ))
 
     # Summary
     ccs = report.coverage.score
     if ccs >= 80:
-        summary = "Strong topical focus. Prioritize front-loading + evidence to increase citation/summary likelihood."
+        summary = "Strong topical focus for this target. Review the optional signals below in the context of the page's purpose."
     elif ccs >= 60:
         summary = "Decent topical focus. Prioritize reducing drift and strengthening weak sections."
     elif ccs >= 40:
-        summary = "Weak topical focus. Prioritize a clearer intro + restructuring around the target topic."
+        summary = "Partial topical focus. Check whether the target accurately describes the page before restructuring it."
     else:
-        summary = "Low topical focus. The content likely doesn’t answer the target topic directly yet."
+        summary = "Low topical alignment. Confirm the target first; the page may be serving a different purpose."
 
     # Stable ordering: HIGH -> MEDIUM -> LOW, then shortest time first
     priority_order = {GeoPriority.HIGH: 0, GeoPriority.MEDIUM: 1, GeoPriority.LOW: 2}
@@ -503,4 +555,5 @@ def generate_geo_next_steps(
         steps=steps_sorted,
         signals=signals,
         intent=intent,
+        page_type=page_type,
     )

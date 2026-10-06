@@ -31,7 +31,8 @@ from simcheck.core.recommendations import (
     RecommendationPriority,
     RecommendationType,
 )
-from simcheck.core.geo import generate_geo_next_steps, infer_intent, GeoIntent, GeoPriority
+from simcheck.core.geo import generate_geo_next_steps, infer_intent, GeoIntent, GeoPriority, PageType
+from simcheck.core.query_quality import assess_target_query, suggest_target_queries
 from simcheck.core.readiness import compute_readiness_score
 from simcheck.quality.snapshot import SnapshotError, fetch_markdown
 from ui.access_views import require_login, sign_out_button
@@ -275,6 +276,15 @@ GEO_INTENT_LABELS = {
     "commercial": "Commercial — comparison / buying decision",
 }
 
+PAGE_TYPE_LABELS = {
+    "auto": "Auto-detect page purpose",
+    "article": "Article / explainer",
+    "how_to": "How-to / guide",
+    "commercial": "Product / service / landing page",
+    "homepage": "Homepage / navigational hub",
+    "reference": "Reference / documentation",
+}
+
 
 # =============================================================================
 # Session State Initialization
@@ -313,6 +323,7 @@ def init_session_state():
         "last_analyzed_document": "",
         "last_analyzed_strategy": "flat",
         "geo_intent": "auto",
+        "page_type": "auto",
     }
     first_run = "document_text" not in st.session_state
     for key, value in defaults.items():
@@ -470,6 +481,10 @@ def render_input_section():
         st.session_state.url_input = ""
         st.session_state.fetch_status = ""
         clear_results()
+    suggested_query = st.session_state.pop("suggested_query_pending", None)
+    if suggested_query:
+        st.session_state.query_input = suggested_query
+        clear_results()
 
     # --- Hero input card ---
     st.markdown('<div class="section-label">Analyze a page</div>', unsafe_allow_html=True)
@@ -549,9 +564,25 @@ def render_input_section():
         char_count = len(document)
         st.caption(f"{char_count:,} characters · ~{word_count:,} words")
 
+        suggestions = suggest_target_queries(document)
+        if suggestions:
+            st.caption("Page-derived candidates describe the current page; edit them to match the query you actually care about.")
+            suggestion_cols = st.columns(len(suggestions))
+            for col, suggestion in zip(suggestion_cols, suggestions):
+                with col:
+                    if st.button(suggestion, key=f"query-suggestion-{suggestion}", use_container_width=True):
+                        st.session_state.suggested_query_pending = suggestion
+                        st.rerun()
+
+    assessment = assess_target_query(query)
+    if query.strip() and not assessment.usable:
+        st.error(assessment.error)
+    elif assessment.warning:
+        st.warning(assessment.warning)
+
     # --- Settings (compact expander) ---
     with st.expander("Settings", expanded=False):
-        s_col, i_col = st.columns(2)
+        s_col, i_col, p_col = st.columns(3)
 
         with s_col:
             strategy = st.selectbox(
@@ -573,10 +604,8 @@ def render_input_section():
                 options=["auto", "informational", "how_to", "commercial"],
                 format_func=lambda x: GEO_INTENT_LABELS[x],
                 help=(
-                    "What kind of AI answer you're optimizing for. This tailors the "
-                    "action plan: informational pushes definitions and FAQs, how-to "
-                    "pushes numbered steps and prerequisites, commercial pushes "
-                    "comparisons and decision criteria."
+                    "What answer form the query suggests. This tailors the options, while "
+                    "page purpose determines whether article-style structures belong here at all."
                 ),
                 key="geo_intent",
             )
@@ -587,12 +616,22 @@ def render_input_section():
                 detected = infer_intent(current_query)
                 st.caption(f"Auto-detect for this topic: {GEO_INTENT_LABELS[detected.value]}")
 
+        with p_col:
+            st.selectbox(
+                "Page purpose",
+                options=list(PAGE_TYPE_LABELS),
+                format_func=lambda x: PAGE_TYPE_LABELS[x],
+                help="What job the page itself performs. This changes which structural suggestions apply.",
+                key="page_type",
+            )
+
     return query, document, strategy
 
 
 def render_action_buttons(query: str, document: str, strategy: str):
     """Render the analyze button (full-width) and status messages."""
-    query_valid = bool(query and query.strip())
+    query_assessment = assess_target_query(query)
+    query_valid = query_assessment.usable
     document_valid = bool(document and document.strip())
     can_analyze = query_valid and document_valid
 
@@ -614,7 +653,7 @@ def render_action_buttons(query: str, document: str, strategy: str):
         if not query_valid and not document_valid:
             st.caption("Enter a topic and document to begin")
         elif not query_valid:
-            st.caption("Enter a target topic")
+            st.caption(query_assessment.error or "Enter a target topic")
         else:
             st.caption("Paste or fetch a document")
     elif st.session_state.status_message:
@@ -715,7 +754,7 @@ def _ccs_interpretation_line(score: float) -> str:
 # =============================================================================
 
 def render_score_banner(geo=None):
-    """Render the SimScore + CCS banner card with a colored accent."""
+    """Render the experimental content-pattern score + CCS banner."""
     result = st.session_state.comparison_result
     report = st.session_state.diagnostic_report
     rec_report = st.session_state.recommendation_report
@@ -726,12 +765,12 @@ def render_score_banner(geo=None):
     coverage = report.coverage
     interp = _ccs_interpretation_line(coverage.score)
 
-    # SimScore (Feature 8): composite readiness metric, needs GEO signals
+    # Experimental content-pattern score; GEO supplies page-purpose context.
     readiness = None
     if geo is not None:
-        readiness = compute_readiness_score(report, geo.signals, geo.intent)
+        readiness = compute_readiness_score(report, geo.signals, geo.intent, geo.page_type)
 
-    # Accent color follows the headline score (SimScore when available)
+    # Accent color follows the content-pattern score when available.
     headline = readiness.score if readiness else coverage.score
     if headline >= 80:
         accent_color = "#00875A"
@@ -754,7 +793,7 @@ def render_score_banner(geo=None):
             with sim_col:
                 st.markdown(
                     f'<div class="ccs-score-big">{readiness.score_rounded}</div>'
-                    f'<div class="ccs-label">SimScore — AI readiness</div>',
+                    f'<div class="ccs-label">Content patterns — experimental</div>',
                     unsafe_allow_html=True,
                 )
             score_col = ccs_col
@@ -773,7 +812,7 @@ def render_score_banner(geo=None):
                 comp = readiness.components
                 st.markdown(f"**{readiness.interpretation}**")
                 st.caption(
-                    f"SimScore components — Coverage: {comp['coverage']:.0f} · "
+                    f"Pattern components — Coverage: {comp['coverage']:.0f} · "
                     f"Structure: {comp['structure']:.0f} · Evidence: {comp['evidence']:.0f} · "
                     f"Answerability: {comp['answerability']:.0f}"
                 )
@@ -786,27 +825,15 @@ def render_score_banner(geo=None):
                 f"Weak: {bc['weak']} · Off-topic: {bc['off_topic']}"
             )
 
-            # CCS potential badge
-            if rec_report and rec_report.has_recommendations():
-                improvement = rec_report.potential_ccs - rec_report.current_ccs
-                if improvement > 0:
-                    st.markdown(
-                        f'<span class="ccs-potential">'
-                        f"CCS Potential: {rec_report.current_ccs:.0f} → {rec_report.potential_ccs:.0f} "
-                        f"(+{improvement:.0f})"
-                        f"</span>",
-                        unsafe_allow_html=True,
-                    )
-
             if coverage.is_single_chunk:
                 st.caption("Single-chunk document — score may be less reliable")
 
             # Score interpretation bands
-            st.caption("80+ strong · 60–79 decent · 40–59 weak · <40 low")
+            st.caption("Experimental weighting: 80+ strong · 60–79 moderate · 40–59 weak · <40 low")
 
             if report.thresholds == SHORT_QUERY_THRESHOLDS:
                 st.caption(
-                    "Short topic (1–2 words) — thresholds auto-calibrated. "
+                    "Short topic (1–2 words) — provisional lower thresholds applied. "
                     "A full phrase gives more reliable scoring."
                 )
 
@@ -815,6 +842,7 @@ def render_score_banner(geo=None):
                 "improvement for the same topic — it is not comparable to "
                 "relevance grades from an LLM."
             )
+            st.caption("Neither score predicts whether an AI answer engine will cite the page. Use citation probes for that.")
 
 
 # Drift map bucket colors — colorblind-safe diverging ladder (cool = aligned,
@@ -891,10 +919,14 @@ def render_drift_map():
     bars = []
     for c in report.by_document_order():
         color = DRIFT_COLORS.get(c.interpretation, "#97A0AF")
-        bar_height = max(8, round(c.similarity * 64))
+        # Height shows variation within this page. Color remains tied to the
+        # provisional raw-cosine band so the two signals are not conflated.
+        bar_height = max(8, round(8 + c.normalized_score * 56))
         preview = " ".join(c.text_preview.split())
         tooltip = html.escape(
-            f"Chunk {c.chunk_index + 1} · {c.similarity:.2f} ({c.interpretation}) — {preview}",
+            f"Chunk {c.chunk_index + 1} · raw cosine {c.similarity:.2f} "
+            f"({c.interpretation}, provisional) · relative position "
+            f"{c.normalized_score:.2f} — {preview}",
             quote=True,
         )
         bars.append(
@@ -914,9 +946,10 @@ def render_drift_map():
     with st.container(border=True):
         st.markdown("### Drift Map")
         st.caption(
-            "Each bar is one chunk, in document order. Taller = more aligned with the "
-            "target topic. Hover for score and text; click a bar to jump to that "
-            "chunk's details below."
+            "Each bar is one chunk, in document order. Height is relative within this page; "
+            "color uses provisional raw-cosine bands. A tallest bar is only the page's best "
+            "match, not proof of strong absolute alignment. Hover for both values and click "
+            "a bar to jump to its details."
         )
         # components.html (not st.markdown) because the click handlers need
         # a script, which st.markdown sanitizes away.
@@ -941,7 +974,18 @@ def compute_geo_report():
     if not document.strip():
         return None
     intent_override = GeoIntent(st.session_state.get("geo_intent", "auto"))
-    return generate_geo_next_steps(report, document, intent_override=intent_override)
+    page_type_override = PageType(st.session_state.get("page_type", "auto"))
+    analysis = st.session_state.get("analysis") or {}
+    rating = analysis.get("rating")
+    snapshot = analysis.get("snapshot")
+    return generate_geo_next_steps(
+        report,
+        document,
+        intent_override=intent_override,
+        page_type_override=page_type_override,
+        page_url=snapshot.final_url if snapshot else st.session_state.get("fetched_url", ""),
+        classified_purpose=rating.purpose if rating else None,
+    )
 
 
 def render_action_plan(geo):
@@ -953,9 +997,13 @@ def render_action_plan(geo):
         return
 
     with st.container(border=True):
-        st.markdown("### Action Plan")
-        st.caption(f"Optimizing for: {GEO_INTENT_LABELS[geo.intent.value]}")
+        st.markdown("### Editorial Options")
+        st.caption(
+            f"Query intent: {GEO_INTENT_LABELS[geo.intent.value]} · "
+            f"Page purpose: {PAGE_TYPE_LABELS[geo.page_type.value]}"
+        )
         st.write(geo.summary)
+        st.info("Editorial options, not orders: keep only changes that improve the page for its audience and preserve its voice.")
 
         # --- Content signals in a tinted strip ---
         sig = geo.signals
@@ -1241,6 +1289,10 @@ def render_diagnostics_expander():
 
         # --- Debug Info ---
         st.write("**Debug Info**")
+        st.caption(
+            "In the JSON below, `score` is min-max position within this document for "
+            "visualization only. `raw_score` drives the provisional alignment label."
+        )
         st.write(f"- Query: `{result.query}`")
         try:
             model_info = get_model_info(DEFAULT_MODEL)
@@ -1262,14 +1314,14 @@ def render_diagnostics_expander():
 # =============================================================================
 
 def render_content_match():
-    """The v1 flow: topic + document in, CCS/SimScore, drift map, action plan."""
+    """Target + document flow: content patterns, drift map, and editorial options."""
     query, document, strategy = render_input_section()
     render_action_buttons(query, document, strategy)
 
     if st.session_state.is_indexed:
         st.markdown('<div style="margin-top: 32px;"></div>', unsafe_allow_html=True)
 
-        # GEO report feeds both the score banner (SimScore) and the action plan
+        # GEO report feeds both the content-pattern banner and action plan.
         geo = compute_geo_report()
         render_score_banner(geo)
         render_drift_map()

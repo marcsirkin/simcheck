@@ -460,9 +460,9 @@ class DiagnosticReport:
 
         Returns list of dicts in document order with:
         - index: chunk position
-        - score: normalized 0-1 score
+        - score: within-document min-max position for visualization only
         - raw_score: original similarity
-        - interpretation: text label
+        - interpretation: provisional text label derived from raw_score
         """
         return [
             {

@@ -184,16 +184,20 @@ def _analyze_off_topic_chunks(report: DiagnosticReport) -> List[Recommendation]:
 
     # Build recommendation
     if len(off_topic) == 1:
-        what = "1 chunk is off-topic and not contributing to concept coverage"
+        what = "Review 1 lower-alignment chunk"
     else:
-        what = f"{len(off_topic)} chunks are off-topic and not contributing to concept coverage"
+        what = f"Review {len(off_topic)} lower-alignment chunks"
 
-    why = (f"Off-topic chunks have 0 weight in CCS calculation. "
-           f"Currently {off_topic_percent:.0%} of your content provides no value.")
+    why = (
+        f"The provisional raw-cosine bands place {off_topic_percent:.0%} of the page below "
+        "the current weak threshold. That may reflect useful context, a target mismatch, or genuine drift."
+    )
 
-    how = ("Rewrite these sections to directly address the target concept. "
-           "Use terminology and themes from your query. "
-           "Even raising these chunks to 'Weak' (0.45+) adds value.")
+    how = (
+        "Decide whether each section serves the page's audience and purpose. Keep useful context; "
+        "otherwise clarify the connection, condense it, move it, or remove it. Do not add query "
+        "terms solely to change the score."
+    )
 
     recommendations.append(Recommendation(
         rec_type=RecommendationType.REWRITE_OFF_TOPIC,
@@ -239,16 +243,19 @@ def _analyze_weak_chunks(report: DiagnosticReport) -> List[Recommendation]:
 
     band = f"{weak_threshold:.2f}-{moderate_threshold:.2f}"
     if len(weak_chunks) == 1:
-        what = f"1 chunk has weak concept alignment ({band})"
+        what = f"Review 1 partially aligned chunk ({band}, provisional)"
     else:
-        what = f"{len(weak_chunks)} chunks have weak concept alignment ({band})"
+        what = f"Review {len(weak_chunks)} partially aligned chunks ({band}, provisional)"
 
-    why = (f"Weak chunks only contribute 20% weight to CCS (vs 60% for moderate, 100% for strong). "
-           f"Strengthening these {len(weak_chunks)} chunks could significantly boost your score.")
+    why = (
+        "These sections sit in a provisional middle band. The score can flag where to look, "
+        "but it cannot tell whether breadth or indirect language is editorially appropriate."
+    )
 
-    how = ("Add more specific language related to your concept. "
-           "Include key terms, examples, or direct references to the topic. "
-           "Aim to raise similarity above 0.65 for moderate contribution.")
+    how = (
+        "Where the meaning is genuinely vague, consider adding concrete entities, constraints, evidence, "
+        "or examples. Preserve natural language and voice; leave the section alone when it already does its job."
+    )
 
     recommendations.append(Recommendation(
         rec_type=RecommendationType.STRENGTHEN_WEAK,
@@ -295,14 +302,17 @@ def _analyze_strong_patterns(report: DiagnosticReport) -> List[Recommendation]:
     # Target chunks are the weak ones that could learn from strong patterns
     target_chunks = [_create_target_chunk(c) for c in weak_or_off[:5]]  # Limit to 5
 
-    what = f"Strong content patterns exist ({len(strong_chunks)} chunks scoring >= 0.80)"
+    what = f"Compare with the page's {len(strong_chunks)} higher-alignment chunks"
 
-    why = ("Your strong chunks demonstrate effective concept coverage. "
-           "Their language and structure can guide improvements to weaker sections.")
+    why = (
+        "The page's higher-scoring passages can reveal which concrete details or framing distinguish them, "
+        "without treating their wording as a template."
+    )
 
-    how = ("Study what makes your strong chunks effective: specific terminology, "
-           "direct concept references, concrete examples. "
-           "Apply these patterns to your weaker sections.")
+    how = (
+        "Compare the passages for specificity, scope, and reader usefulness. Borrow an underlying technique "
+        "only when it improves the lower-alignment section and still sounds like the same author."
+    )
 
     recommendations.append(Recommendation(
         rec_type=RecommendationType.EXPAND_STRONG,
@@ -357,12 +367,15 @@ def _analyze_sections(report: DiagnosticReport) -> List[Recommendation]:
     else:
         what = f"{len(low_sections)} sections have coverage below {SECTION_COVERAGE_THRESHOLD}"
 
-    why = ("Low section coverage suggests the entire section may be tangential to your concept. "
-           "Section-level restructuring may be more effective than fixing individual chunks.")
+    why = (
+        "The section has lower weighted alignment with the supplied target. It may be intentionally broader, "
+        "or the target may not describe the whole page."
+    )
 
-    how = ("Consider whether this section is necessary for your topic. "
-           "If keeping it, refocus the entire section around your concept, "
-           "not just individual sentences.")
+    how = (
+        "Review the section as a unit. Keep it if it serves the page's purpose; otherwise clarify its role, "
+        "tighten it, or move it rather than editing isolated sentences to chase the score."
+    )
 
     recommendations.append(Recommendation(
         rec_type=RecommendationType.RESTRUCTURE_SECTION,
@@ -409,16 +422,21 @@ def _analyze_dilution(report: DiagnosticReport) -> List[Recommendation]:
     off_topic = report.off_topic_chunks()
     target_chunks = [_create_target_chunk(c) for c in off_topic[:5]]
 
-    what = (f"Score dilution: {strong_count} strong chunks are being diluted by "
-            f"{off_topic_count} off-topic chunks")
+    what = (
+        f"The page mixes {strong_count} higher-alignment chunks with "
+        f"{off_topic_count} lower-alignment chunks"
+    )
 
-    why = (f"Your document has good strong content ({strong_percent:.0%}) but also "
-           f"significant off-topic content ({off_topic_percent:.0%}). "
-           "The off-topic sections drag down your overall score.")
+    why = (
+        f"The provisional bands show a split pattern: {strong_percent:.0%} in the highest band and "
+        f"{off_topic_percent:.0%} below the weak threshold. That is a prompt to inspect page scope, not "
+        "automatic evidence that content should be removed."
+    )
 
-    how = ("Consider removing or significantly condensing off-topic sections. "
-           "A shorter, more focused document often scores better than a longer "
-           "one with diluted content.")
+    how = (
+        "Check whether the page is intentionally serving more than one reader need. If the scope feels unfocused, "
+        "consider clearer section framing, a separate page, or selective condensation."
+    )
 
     recommendations.append(Recommendation(
         rec_type=RecommendationType.REMOVE_DILUTION,
@@ -512,11 +530,11 @@ def _generate_summary(
 
     if not recommendations:
         if current_ccs >= 80:
-            return "Excellent coverage. Your document strongly expresses the target concept."
+            return "The provisional bands show consistently high alignment with the target."
         elif current_ccs >= 60:
-            return "Good coverage. Minor improvements possible but document is solid."
+            return "The provisional bands show generally consistent alignment with the target."
         else:
-            return "Limited analysis available. Consider adding more concept-related content."
+            return "Review the target and the lower-alignment passages before drawing a conclusion."
 
     high_count = len([r for r in recommendations if r.priority == RecommendationPriority.HIGH])
     total_count = len(recommendations)
@@ -524,18 +542,21 @@ def _generate_summary(
     summary_parts = []
 
     if high_count > 0:
-        summary_parts.append(f"{high_count} high-priority fix{'es' if high_count > 1 else ''} identified")
+        summary_parts.append(f"{high_count} high-priority review{'s' if high_count > 1 else ''} identified")
 
     if improvement > 5:
-        summary_parts.append(f"potential +{improvement:.0f} point CCS improvement")
+        summary_parts.append(f"illustrative +{improvement:.0f} CCS scenario if flagged bands changed")
 
     if report.summary.chunks_off_topic > 0:
-        summary_parts.append(f"{report.summary.chunks_off_topic} off-topic chunk{'s' if report.summary.chunks_off_topic > 1 else ''} to address")
+        summary_parts.append(
+            f"{report.summary.chunks_off_topic} lower-alignment chunk"
+            f"{'s' if report.summary.chunks_off_topic > 1 else ''} to review"
+        )
 
     if summary_parts:
-        return f"{total_count} recommendations: " + ", ".join(summary_parts) + "."
+        return f"{total_count} editorial options: " + ", ".join(summary_parts) + "."
     else:
-        return f"{total_count} recommendations for improving concept coverage."
+        return f"{total_count} editorial options for reviewing concept coverage."
 
 
 def _add_examples_to_recommendations(

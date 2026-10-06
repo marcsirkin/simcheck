@@ -1,7 +1,7 @@
 """
 Executive summary for the Report tab and the shareable client report.
 
-Turns the analysis (page quality, AI access, SimScore/CCS, optional probes)
+Turns the analysis (page quality, AI access, content patterns, optional probes)
 into a headline sentence, two short summary paragraphs, and a ranked
 "fix first" list. Deterministic templates, no LLM: every sentence traces to
 a measured signal, and the same inputs always give the same report.
@@ -52,7 +52,7 @@ class PageReport:
     fixes: tuple            # Fix, ranked
     quality_line: str       # one-line caption under the PQ number
     visibility_line: str    # caption under the citations / access number
-    simscore_line: str      # caption under SimScore
+    simscore_line: str      # legacy field name; caption under Content patterns
 
 
 # =============================================================================
@@ -102,12 +102,8 @@ def _visibility_clause(access: Optional[AIAccessReport], probes: Optional[ProbeR
         if k == n:
             return "AI search engines cite it"
         return f"AI search engines cite it in {k} of {n} answers"
-    if readiness is not None:
-        if readiness.score >= 80:
-            return "It is well shaped for AI answers"
-        if readiness.score >= 60:
-            return "It is close to ready for AI answers"
-        return "Its content isn't shaped for AI answers yet"
+    if access is not None:
+        return "AI search crawlers can reach it, but citation has not been tested"
     return None
 
 
@@ -162,15 +158,6 @@ def _visibility_paragraph(access, probes, readiness) -> Optional[str]:
             parts.append(line + ".")
         else:
             parts.append(f"It was cited in {k} of {n} AI answers we tested.")
-    if readiness is not None and readiness.score < 80:
-        weakest = min(readiness.components, key=readiness.components.get)
-        cause = {
-            "coverage": "the page covers the target query unevenly",
-            "structure": "the page lacks the structure AI engines extract from (headings, summary, FAQ)",
-            "evidence": "the page offers few citable specifics",
-            "answerability": "the direct answer sits too far down the page",
-        }[weakest]
-        parts.append(f"The likely cause is {cause}.")
     return " ".join(parts) or None
 
 
@@ -227,7 +214,8 @@ def _content_fixes(geo: GeoNextStepsReport) -> list:
     out = []
     for step in geo.steps:
         tier = _TIER_GEO_HIGH if step.priority == GeoPriority.HIGH else _TIER_GEO_OTHER
-        out.append(Fix(step.title, step.how.split("\n")[0].strip(), step.minutes, "content", tier))
+        detail = "Editorial option: " + step.how.split("\n")[0].strip()
+        out.append(Fix(step.title, detail, step.minutes, "content", tier))
     return out
 
 
@@ -257,7 +245,7 @@ def build_report(
     Build the executive summary from whatever parts of the analysis ran.
 
     Every input is optional so the report degrades gracefully: no keys
-    (no rating), no query (no SimScore), probes not run, or pasted text
+    (no rating), no query (no content-pattern score), probes not run, or pasted text
     (no snapshot/access).
 
     Returns:
@@ -300,7 +288,10 @@ def build_report(
 
     simscore_line = ""
     if readiness is not None:
-        simscore_line = f"Covers the target query at {round(readiness.components['coverage'])}/100."
+        simscore_line = (
+            f"Experimental heuristic. Target coverage: {round(readiness.components['coverage'])}/100. "
+            "This does not predict citations."
+        )
 
     return PageReport(
         headline=build_headline(rating, access, probes, readiness),

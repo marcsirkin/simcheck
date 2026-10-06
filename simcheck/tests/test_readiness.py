@@ -1,8 +1,8 @@
-"""Tests for the SimScore LLM readiness metric (Feature 8)."""
+"""Tests for the experimental content-pattern metric (Feature 8)."""
 
 from simcheck.core.models import Chunk, ChunkSimilarity, ComparisonResult
 from simcheck.core.diagnostics import create_diagnostic_report
-from simcheck.core.geo import ContentSignals, GeoIntent
+from simcheck.core.geo import ContentSignals, GeoIntent, PageType
 from simcheck.core.readiness import (
     compute_readiness_score,
     interpret_readiness,
@@ -65,11 +65,11 @@ def make_signals(**overrides) -> ContentSignals:
 
 class TestInterpretReadiness:
     def test_bands(self):
-        assert interpret_readiness(85) == "AI-ready"
-        assert interpret_readiness(80) == "AI-ready"
-        assert interpret_readiness(70) == "Nearly ready"
-        assert interpret_readiness(50) == "Needs work"
-        assert interpret_readiness(20) == "Not ready"
+        assert interpret_readiness(85) == "Strong signal coverage"
+        assert interpret_readiness(80) == "Strong signal coverage"
+        assert interpret_readiness(70) == "Solid signal coverage"
+        assert interpret_readiness(50) == "Partial signal coverage"
+        assert interpret_readiness(20) == "Limited signal coverage"
 
 
 class TestWeights:
@@ -83,7 +83,7 @@ class TestComputeReadinessScore:
         report = make_report([(0.30, "Off-topic"), (0.35, "Off-topic")])
         score = compute_readiness_score(report, make_signals(), GeoIntent.INFORMATIONAL)
         assert score.score < 40
-        assert score.interpretation == "Not ready"
+        assert score.interpretation == "Limited signal coverage"
 
     def test_fully_equipped_document_scores_high(self):
         """Strong coverage + all signals -> high score."""
@@ -102,7 +102,7 @@ class TestComputeReadinessScore:
         )
         score = compute_readiness_score(report, signals, GeoIntent.INFORMATIONAL)
         assert score.score >= 90
-        assert score.interpretation == "AI-ready"
+        assert score.interpretation == "Strong signal coverage"
 
     def test_components_are_bounded(self):
         report = make_report([(0.90, "Strong")])
@@ -149,3 +149,12 @@ class TestComputeReadinessScore:
         early = compute_readiness_score(early_best, signals, GeoIntent.INFORMATIONAL)
         late = compute_readiness_score(late_best, signals, GeoIntent.INFORMATIONAL)
         assert early.components["answerability"] > late.components["answerability"]
+
+    def test_homepage_does_not_require_definition_faq_or_tldr(self):
+        report = make_report([(0.90, "Strong")])
+        signals = make_signals(h2_count=3, h3_count=1, intro_query_term_coverage=1.0)
+        score = compute_readiness_score(
+            report, signals, GeoIntent.INFORMATIONAL, PageType.HOMEPAGE
+        )
+        assert score.components["structure"] == 100.0
+        assert score.components["answerability"] == 100.0

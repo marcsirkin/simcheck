@@ -102,7 +102,7 @@ def share_report_html(
         f'<li style="margin-top:10px;padding-left:6px">{escape(f.title)}. <span style="color:#5B6270">'
         f'{escape(f.detail)}</span></li>' for f in report.fixes)
     total_minutes = sum(f.minutes for f in report.fixes if f.minutes)
-    effort = _p(f"These changes take about {total_minutes} minutes of editing.") if total_minutes else ""
+    effort = _p(f"Estimated review and editing time: about {total_minutes} minutes.") if total_minutes else ""
 
     method = "Method: page quality follows Google's Search Quality Rater Guidelines (September 2025 edition)."
     if probes is not None and probes.completed:
@@ -124,7 +124,7 @@ def share_report_html(
         f'<p style="margin:14px 0 0;font-size:14px;color:#5B6270;font-family:\'Geist Mono\',monospace;word-break:break-all">{escape(url)}</p>'
         f'{figures_html}'
         f'<h2 style="margin:48px 0 0;font-size:17px;font-weight:600">What we found</h2>{found}'
-        + (f'<h2 style="margin:44px 0 0;font-size:17px;font-weight:600">What to change</h2>'
+        + (f'<h2 style="margin:44px 0 0;font-size:17px;font-weight:600">Options to consider</h2>'
            f'<ol style="margin:14px 0 0;padding-left:22px;font-size:16px;line-height:1.65;color:#2A2F37">{fixes}</ol>{effort}'
            if report.fixes else "")
         + f'<footer style="margin-top:64px;padding-top:20px;border-top:1px solid #E3E6EA;font-size:12.5px;line-height:1.6;'

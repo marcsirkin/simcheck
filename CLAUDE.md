@@ -14,7 +14,7 @@ simcheck/
 │   ├── models.py, chunker.py, embeddings.py, similarity.py, engine.py
 │   ├── diagnostics.py      # CCS, section analysis
 │   ├── recommendations.py, geo.py (intent, content signals, action plan)
-│   └── readiness.py        # SimScore
+│   └── readiness.py        # experimental content-pattern score
 ├── quality/                # v2, network: page/site quality + LLM visibility
 │   ├── snapshot.py         # validated fetch (SSRF-safe redirects, 5MB cap, WAF detection) + extraction
 │   ├── ai_access.py        # robots.txt per AI bot (search vs training), noindex, CSR, schema, llms.txt
@@ -27,7 +27,7 @@ simcheck/
 │   ├── site.py             # sitemap discovery, stratified sampling, audit
 │   ├── export.py           # shareable HTML report, JSON, CSV
 │   └── evaluation.py       # golden-set metrics + offline hybrid simulation
-├── tests/                  # 549 tests, no network (fakes + fixtures/)
+├── tests/                  # 556 tests; external app calls faked, embedding model loaded locally
 ui/quality_views.py         # Streamlit views for Report / Page Quality / LLM Visibility / Site Audit
 app.py                      # Streamlit router: header, URL bar, 5 tabs; Content Match = v1 flow
 eval/run_eval.py            # golden-set agreement (eval/data/ gitignored: client sites)
@@ -48,10 +48,10 @@ docs/reference/             # Google QRG PDF/text (gitignored, re-fetch steps in
 - Section-level analysis for hierarchical documents
 
 ### Feature 3: Streamlit Playground UI
-- Single-page flow: hero input card, SimScore+CCS banner, drift map, action plan, diagnostics expander
+- Single-page flow: hero input card, content-pattern score + CCS, drift map, action plan, diagnostics expander
 - URL fetcher (convert webpage to Markdown locally via markitdown)
 - DKIM example pre-loaded on first visit; "Load example" / "Clear content" buttons
-- Chunking strategy selector; GEO intent selector with AI-answer-type labels + auto-detect caption
+- Chunking strategy selector; separate query-intent and page-purpose controls
 - Drift map: clickable per-chunk bars in document order (colorblind-safe palette);
   click opens Detailed Diagnostics and smooth-scrolls to that chunk
 - Similarity metrics, section analysis, debug panel
@@ -93,15 +93,15 @@ docs/reference/             # Google QRG PDF/text (gitignored, re-fetch steps in
 - Prioritized (HIGH/MEDIUM/LOW), chunk-specific, with estimated CCS improvement
 
 ### Feature 7: GEO Action Plan
-- `generate_geo_next_steps(report, document, intent_override)` -> `GeoNextStepsReport`
-- Intent detection: informational, how_to, commercial (auto or override)
+- `generate_geo_next_steps(...)` -> `GeoNextStepsReport`
+- Separate query intent and page purpose; recommendations are editorial options
 - Content signal extraction (headings, links, FAQ, TL;DR, steps, examples, etc.)
 - Prioritized editor-friendly checklist with time estimates
 
-### Feature 8: SimScore (LLM Readiness)
-- `compute_readiness_score(report, signals, intent)` -> `ReadinessScore`
+### Feature 8: Experimental Content-Pattern Score
+- `compute_readiness_score(report, signals, intent, page_type)` -> `ReadinessScore` (legacy type name)
 - Composite 0-100: coverage (CCS, 50%) + structure (20%) + evidence (15%) + answerability (15%)
-- Bands: 80+ AI-ready, 60-79 Nearly ready, 40-59 Needs work, <40 Not ready
+- Descriptive signal-coverage bands only; never claim this predicts citation
 
 ### Feature 9: Page snapshot + AI access (`snapshot.py`, `ai_access.py`)
 - Deterministic, no keys. Bot-protected sites raise FetchBlockedError (paste-HTML fallback)
@@ -142,7 +142,7 @@ docs/reference/             # Google QRG PDF/text (gitignored, re-fetch steps in
 - Validate inputs at module boundaries
 
 ### Testing
-- Unit tests for all core logic (549 tests); no test may call the network
+- Unit tests for all core logic (556 tests); external app calls are faked
 - Test edge cases explicitly
 - Use pytest conventions
 
@@ -170,6 +170,6 @@ git config core.hooksPath .githooks   # gitleaks pre-commit (brew install gitlea
 
 ## Current Status
 **Features Complete:** 1-14
-**Test Count:** 549 passing
+**Test Count:** 556 passing
 **Status:** v2.0.0 on `main` (tagged) — QRG page rating (Jev), AI access, citation probes, site audit, tabbed UI with shareable report, hosted login gate
 **Next:** see ROADMAP.md (golden-set eval first)

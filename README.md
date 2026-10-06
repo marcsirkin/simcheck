@@ -8,10 +8,10 @@ Give SimCheck a URL. It rates the page against Google's Search Quality Rater Gui
 
 | Tab | Answers | How |
 |---|---|---|
-| **Report** | What's the verdict, and what do I fix first? | Generated headline finding, three figures, summary, ranked fixes. Exports a shareable client report (HTML) and full JSON. |
+| **Report** | What's the finding, and what should I consider next? | Generated headline finding, three figures, summary, and ranked editorial or technical options. Exports a shareable client report (HTML) and full JSON. |
 | **Page Quality** | How would a Google Quality Rater score this page? | 15 rubric questions from the QRG (Sept 2025 edition) answered by Jev, TypeSafe's typed classifier. Band on Google's 9-point scale plus a 0-100 score, E-E-A-T breakdown, YMYL, Needs Met. "Explain this rating" asks Claude for quoted evidence. |
 | **LLM Visibility** | Can AI reach it? Does AI cite it? | robots.txt rules for 9 AI crawlers (search vs training), noindex/nosnippet, JavaScript rendering, schema, llms.txt. Click-to-run citation probes ask Perplexity real questions and show who got cited instead. |
-| **Content Match** | Does the text cover the query? | The original SimCheck: local embeddings, Concept Coverage Score, SimScore, drift map, GEO action plan. Paste a draft here to re-score edits. |
+| **Content Match** | Does the text cover the query? | Local embeddings, Concept Coverage Score, an experimental content-pattern score, drift map, and page-purpose-aware editorial options. Paste a draft here to compare edits. |
 | **Site Audit** | How does the whole site rate? | Reads the sitemap newest-first, samples pages updated in the last 12 months (or the whole site) across site sections, rates each one, sortable grid, CSV export. |
 
 ## Setup
@@ -89,9 +89,13 @@ Each backend is called once per page and cached, so threshold sweeps replay for 
 
 1. **Chunking**: flat (~150-token chunks at sentence boundaries) or hierarchical (H2 → MACRO, H3 → MICRO, paragraphs → ATOMIC) via `FLAT`, `MARKDOWN`, `HTML`, or `AUTO`.
 2. **Embedding**: `BAAI/bge-base-en-v1.5`, locally.
-3. **Similarity**: cosine similarity between the query and each chunk, bucketed Strong (≥0.80), Moderate (0.65-0.80), Weak (0.45-0.65), Off-topic (<0.45). Queries of 1-2 words use lower calibrated bands (0.72 / 0.60 / 0.42) because bare keywords score systematically lower.
+3. **Similarity**: cosine similarity between the query and each chunk, bucketed with provisional heuristic thresholds: Strong (≥0.80), Moderate (0.65-0.80), Weak (0.45-0.65), Off-topic (<0.45). Queries of 1-2 words use lower provisional bands (0.72 / 0.60 / 0.42) because bare keywords score systematically lower. These labels are being calibrated against hand-rated query/passage pairs.
 4. **Concept Coverage Score**: `CCS = (sum of weighted chunks / total chunks) × 100` with weights 1.0 / 0.6 / 0.2 / 0.0. CCS is relative: compare drafts for the same topic, not unrelated pages.
-5. **SimScore**: 0-100 composite of coverage (50%), structure (20%), evidence (15%), and answerability (15%).
+5. **Content patterns (experimental)**: 0-100 composite of coverage (50%), page-purpose-aware structure (20%), evidence (15%), and opening clarity (15%). It is an editorial diagnostic, not a citation prediction. Use LLM Visibility probes to test citations.
+
+Placeholder targets are not scored. Short targets receive a warning, and the UI offers editable candidates from the page's headings. Query intent and page purpose are separate controls so, for example, a homepage is not penalized for lacking an article-style definition, FAQ, or TL;DR.
+
+To calibrate the chunk labels separately from the QRG evaluation, see [`eval/CONTENT_MATCH.md`](eval/CONTENT_MATCH.md).
 
 ### Python API
 
@@ -156,7 +160,7 @@ Revoke someone by removing their entry from `SIMCHECK_ACCESS_CODES` and rebootin
 pytest simcheck/tests/ -v
 ```
 
-549 tests. No test calls the network: classifiers, OpenRouter, and HTTP are faked.
+556 tests. Classifiers, OpenRouter, and page-fetch HTTP are faked. Embedding tests load the configured local model and may perform a Hugging Face metadata check.
 
 ## Roadmap
 

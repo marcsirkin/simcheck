@@ -43,6 +43,7 @@ from simcheck.core.embeddings import (
     DEFAULT_MODEL,
 )
 from simcheck.core.similarity import compute_similarities
+from simcheck.core.query_quality import assess_target_query
 
 
 class ComparisonError(Exception):
@@ -72,6 +73,10 @@ def _validate_inputs(query: str, document: str) -> None:
 
     if not document.strip():
         raise ComparisonError("Document is empty or contains only whitespace")
+
+    assessment = assess_target_query(query)
+    if not assessment.usable:
+        raise ComparisonError(assessment.error or "Target query cannot be scored")
 
 
 def compare_query_to_document(
@@ -220,6 +225,10 @@ def compare_query_to_chunks(
     """
     if not query or not query.strip():
         raise ComparisonError("Query is empty or contains only whitespace")
+
+    assessment = assess_target_query(query)
+    if not assessment.usable:
+        raise ComparisonError(assessment.error or "Target query cannot be scored")
 
     if not chunks:
         raise ComparisonError("Chunks list is empty")

@@ -21,7 +21,8 @@ import pandas as pd
 import streamlit as st
 
 from simcheck.config import ConfigError, load_api_keys
-from simcheck.core.geo import GeoIntent, generate_geo_next_steps
+from simcheck.core.geo import GeoIntent, PageType, generate_geo_next_steps
+from simcheck.core.query_quality import assess_target_query
 from simcheck.core.readiness import compute_readiness_score
 from simcheck.quality.ai_access import AI_BOTS, SEARCH_CRITICAL_BOTS, check_ai_access
 from simcheck.quality.classifier import ClassifierError, build_state, make_classifier, make_explainer
@@ -184,12 +185,20 @@ def _analyze(url: str, query: str, pasted_html: str, run_content_match: Callable
 
     # Feed Content Match: these widget keys render later in this run, so
     # setting them here is allowed.
-    if query.strip() and snapshot.main_markdown:
-        s.query_input = query
+    if snapshot.main_markdown:
+        s.query_input = query if query.strip() else ""
         s.document_input = snapshot.main_markdown
         s.strategy_select = "markdown"
         s.fetched_url = url
-        run_content_match(query, snapshot.main_markdown, "markdown")
+        if query.strip():
+            run_content_match(query, snapshot.main_markdown, "markdown")
+        else:
+            s.is_indexed = False
+            s.comparison_result = None
+            s.diagnostic_report = None
+            s.recommendation_report = None
+            s.last_analyzed_query = ""
+            s.last_analyzed_document = ""
 
 
 def render_url_bar(run_content_match: Callable) -> None:
@@ -200,7 +209,7 @@ def render_url_bar(run_content_match: Callable) -> None:
             st.text_input("Page URL", key="qa_url", placeholder="https://example.com/page")
         with c2:
             st.text_input("Target query", key="qa_query", placeholder="what a searcher would ask",
-                          help="Optional. Adds Needs Met, SimScore, and Content Match.")
+                          help="Optional. Adds Needs Met and Content Match. Placeholder targets are not scored.")
         with c3:
             go = st.button("Analyze", type="primary", use_container_width=True)
 
@@ -216,21 +225,38 @@ def render_url_bar(run_content_match: Callable) -> None:
             return
         if "//" not in url:
             url = "https://" + url
+        query = _state().qa_query.strip()
+        assessment = assess_target_query(query) if query else None
+        if assessment and not assessment.usable:
+            st.warning(assessment.error + " The page-quality and access checks will still run without it.")
+            query = ""
+        elif assessment and assessment.warning:
+            st.warning(assessment.warning)
         if not guard("analyze"):
             return
         with st.spinner("Fetching and rating the page..."):
-            _analyze(url, _state().qa_query.strip(), _state().qa_paste_html, run_content_match)
+            _analyze(url, query, _state().qa_paste_html, run_content_match)
 
 
 def _readiness_and_geo():
-    """SimScore + GEO steps from the Content Match analysis, if it ran."""
+    """Experimental content-pattern score + editorial options, if available."""
     s = _state()
     report = s.get("diagnostic_report")
     document = s.get("last_analyzed_document") or ""
     if not report or not document.strip():
         return None, None
-    geo = generate_geo_next_steps(report, document, intent_override=GeoIntent(s.get("geo_intent", "auto")))
-    return compute_readiness_score(report, geo.signals, geo.intent), geo
+    analysis = s.get("analysis") or {}
+    rating = analysis.get("rating")
+    snapshot = analysis.get("snapshot")
+    geo = generate_geo_next_steps(
+        report,
+        document,
+        intent_override=GeoIntent(s.get("geo_intent", "auto")),
+        page_type_override=PageType(s.get("page_type", "auto")),
+        page_url=snapshot.final_url if snapshot else s.get("fetched_url", ""),
+        classified_purpose=rating.purpose if rating else None,
+    )
+    return compute_readiness_score(report, geo.signals, geo.intent, geo.page_type), geo
 
 
 def _no_analysis() -> bool:
@@ -299,9 +325,11 @@ def render_report_tab() -> None:
         figs.append(_figure("AI access", "Blocked" if blocked else "Open", BAD if blocked else INK,
                             caption=report.visibility_line))
     if readiness is not None:
-        figs.append(_figure("SimScore", str(round(readiness.score)), INK, readiness.interpretation, report.simscore_line))
+        figs.append(_figure("Content patterns", str(round(readiness.score)), INK,
+                            readiness.interpretation, report.simscore_line))
     else:
-        figs.append(_figure("SimScore", "–", MUTED, caption="Add a target query to score content fit."))
+        figs.append(_figure("Content patterns", "–", MUTED,
+                            caption="Add a usable target query to compare content patterns."))
 
     summary = "".join(f"<p>{esc(p)}</p>" for p in report.summary)
     fixes = "".join(
@@ -313,7 +341,7 @@ def render_report_tab() -> None:
         f'<div class="sc"><h1 class="sc-h1">{esc(report.headline)}</h1>'
         f'<div class="sc-figs" style="grid-template-columns:repeat({len(figs)},minmax(0,1fr))">{"".join(figs)}</div>'
         + (f'<section class="sc-sec"><h2>Summary</h2><div class="sc-body">{summary}</div></section>' if summary else "")
-        + (f'<section class="sc-sec"><h2>Fix first</h2><ol class="sc-fixes">{fixes}</ol></section>' if fixes else "")
+        + (f'<section class="sc-sec"><h2>Editorial options</h2><ol class="sc-fixes">{fixes}</ol></section>' if fixes else "")
         + '</div>'
     )
 

@@ -2,7 +2,15 @@
 
 from simcheck.core.models import Chunk, ChunkSimilarity, ComparisonResult, ChunkLevel
 from simcheck.core.diagnostics import create_diagnostic_report
-from simcheck.core.geo import extract_content_signals, generate_geo_next_steps, GeoPriority, GeoIntent, infer_intent
+from simcheck.core.geo import (
+    PageType,
+    extract_content_signals,
+    generate_geo_next_steps,
+    GeoPriority,
+    GeoIntent,
+    infer_intent,
+    infer_page_type,
+)
 
 
 def make_chunk(index: int, text: str, token_count: int = 10) -> Chunk:
@@ -87,8 +95,8 @@ def test_generate_geo_next_steps_front_load_and_off_topic():
     assert len(geo.steps) > 0
 
     titles = [s.title.lower() for s in geo.steps]
-    assert any("front-load" in t for t in titles)
-    assert any("off-topic" in t or "drift" in t for t in titles)
+    assert any("near the top" in t for t in titles)
+    assert any("lower-alignment" in t or "drift" in t for t in titles)
 
     # At least one HIGH priority item should be present in this case.
     assert any(s.priority == GeoPriority.HIGH for s in geo.steps)
@@ -98,3 +106,25 @@ def test_infer_intent():
     assert infer_intent("how to choose a crm") == GeoIntent.HOW_TO
     assert infer_intent("best crm software pricing") == GeoIntent.COMMERCIAL
     assert infer_intent("what is retrieval augmented generation") == GeoIntent.INFORMATIONAL
+
+
+def test_infer_homepage_from_root_url_or_classifier():
+    assert infer_page_type("content", GeoIntent.INFORMATIONAL, page_url="https://example.com/") == PageType.HOMEPAGE
+    assert infer_page_type(
+        "content", GeoIntent.INFORMATIONAL, classified_purpose="navigational"
+    ) == PageType.HOMEPAGE
+
+
+def test_homepage_does_not_get_article_format_suggestions():
+    chunks = [make_chunk_similarity(0, "A broad company homepage.", 0.50, "Weak")]
+    report = create_diagnostic_report(make_comparison_result(chunks, query="manufacturing software platform"))
+    document = "# Acme\n\n" + ("Company products, customers, and capabilities. " * 150)
+    geo = generate_geo_next_steps(
+        report,
+        document,
+        page_type_override=PageType.HOMEPAGE,
+    )
+    titles = " ".join(step.title.lower() for step in geo.steps)
+    assert "definition" not in titles
+    assert "faq" not in titles
+    assert "summary" not in titles

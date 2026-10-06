@@ -126,15 +126,17 @@ explicit click.
 **User Story:** As an analyst, I want a visual interface to explore results, compare content versions, and drill into chunk-level details.
 
 **Acceptance Criteria:**
-- [x] Single-page flow: hero input card, SimScore+CCS banner, drift map, action plan, diagnostics expander
+- [x] Single-page flow: hero input card, experimental content-pattern score + CCS banner, drift map, action plan, diagnostics expander
 - [x] Text input for query (target topic) and document
 - [x] DKIM example pre-loaded on first visit; Load example / Clear content buttons
 - [x] URL fetcher (convert webpage to Markdown via markitdown)
 - [x] Chunking strategy selector (flat, auto, markdown, html)
 - [x] GEO intent override with AI-answer-type labels + auto-detect caption
+- [x] Separate page-purpose override; homepage, commercial, article, how-to, and reference guidance
+- [x] Reject obvious placeholder targets; warn on short targets; offer editable heading-derived candidates
 - [x] "Analyze Document" full-width button triggers full pipeline
 - [x] Embedding model warmed at startup (no first-click stall)
-- [x] SimScore + CCS as colored-accent banner card with component breakdown
+- [x] Experimental content-pattern score + CCS as colored-accent banner card with component breakdown
 - [x] Drift map: clickable per-chunk bars (colorblind-safe diverging palette);
       click opens Detailed Diagnostics and smooth-scrolls to the chunk
 - [x] Phrase-vs-keyword coaching (placeholder + help tooltip on Target topic)
@@ -173,14 +175,18 @@ explicit click.
 | 0.45-0.65   | Weak           | 0.2        |
 | < 0.45      | Off-topic      | 0.0        |
 
-**Short-Query Calibration (1-2 word queries):**
+**Short-Query Provisional Thresholds (1-2 word queries):**
 Bare keyword/entity queries produce systematically lower cosine scores than
 phrase queries (on bge-base, a fully on-topic document tops out ~0.78 for a
 single-word query). Queries of 1-2 words automatically use lower bands:
 Strong >= 0.72, Moderate 0.60-0.72, Weak 0.42-0.60, Off-topic < 0.42.
-The UI flags when this calibration is active and coaches phrase-shaped queries.
+The UI flags when these provisional bands are active and coaches phrase-shaped queries.
 CCS is a relative measure (compare drafts for the same topic) — not comparable
 to LLM relevance grades.
+
+The production bands are heuristics, not ground truth. `eval/run_content_match_eval.py`
+compares them with hand-rated query/passage pairs and A/B tests BGE's recommended
+retrieval query instruction before any threshold change is accepted.
 
 ---
 
@@ -229,27 +235,27 @@ to LLM relevance grades.
 **User Story:** As a content editor, I want a prioritized checklist of what to change, where, and why, so I can improve my page's AI visibility.
 
 **Acceptance Criteria:**
-- [x] `generate_geo_next_steps(report, document, intent_override)` produces action plan
+- [x] `generate_geo_next_steps(...)` produces page-purpose-aware editorial options
 - [x] Intent detection: informational, how_to, commercial (auto or override)
 - [x] Content signal extraction (headings, links, FAQ, TL;DR, steps, examples, sources, freshness)
-- [x] Actions: front-load definition, reduce drift, strengthen weak, add structure, add evidence, add examples, add FAQ, add TL;DR
+- [x] Actions are conditional options, not universal orders; voice and audience fit take precedence over score improvement
 - [x] Intent-specific actions (how-to: add steps; commercial: add comparison section)
 - [x] Each step includes: title, priority, why, how, time estimate, examples, target chunks
 - [x] Sorted: HIGH → MEDIUM → LOW, then shortest time first
 
 ---
 
-### Feature 8: SimScore (LLM Readiness) ✅
-**Description:** A single reportable 0-100 metric blending semantic coverage with AI-answerability signals.
+### Feature 8: Experimental Content-Pattern Score ✅
+**Description:** A 0-100 editorial diagnostic blending semantic coverage with observable content signals. It does not predict citation.
 
-**User Story:** As a marketer/agency, I want one headline number I can report to clients to prove content is optimized for AI search.
+**User Story:** As an editor, I want a compact view of content patterns while retaining the underlying components and limitations.
 
 **Acceptance Criteria:**
-- [x] `compute_readiness_score(report, signals, intent)` -> `ReadinessScore`
+- [x] `compute_readiness_score(report, signals, intent, page_type)` -> `ReadinessScore` (legacy internal name)
 - [x] Composite: coverage (CCS, 50%) + structure (20%) + evidence (15%) + answerability (15%)
-- [x] Steps signal only required for how-to intent
-- [x] Bands: 80+ AI-ready, 60-79 Nearly ready, 40-59 Needs work, <40 Not ready
-- [x] Banner shows SimScore headline + component breakdown alongside CCS
+- [x] Page-purpose-aware structure and evidence signals
+- [x] Descriptive signal-coverage bands; no ready/not-ready verdict
+- [x] Banner states that the score is experimental and does not predict citation
 
 ---
 
@@ -436,7 +442,7 @@ See [ROADMAP.md](ROADMAP.md) for the prioritized backlog (v1 carry-overs include
 
 ## Session Management
 
-**Test Count:** 549 passing
+**Test Count:** 556 passing
 **Features Complete:** 1-14 (11 awaiting golden-set ratings)
 **Version:** v2.0.0
 **Status:** QRG page rating, AI access, citation probes, site audit, tabbed UI with shareable report
